@@ -12,7 +12,7 @@ public class TcpServerConfig {
 	private int connectWaitCount = 64;
 	
 	private int socketIOThreadCount = 4;
-	
+		
 	//64kb
 	private int socketReceiveBufferSize = 65536;
 	
