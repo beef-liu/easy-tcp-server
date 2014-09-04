@@ -4,6 +4,7 @@ import static org.junit.Assert.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.pool2.impl.GenericObjectPool;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
@@ -15,6 +16,12 @@ import com.beef.easytcp.base.ChannelByteBufferPoolFactory;
 public class TcpServerTest {
 
 	@Test
+	public void test2() {
+		AtomicInteger i = new AtomicInteger(Integer.MAX_VALUE);
+		int n = i.incrementAndGet();
+		System.out.println("n:" + n + " mod:" + (n % 5));
+	}
+	
 	public void test1() {
 		try {
 			int bufferSize = 1024 * 4;
