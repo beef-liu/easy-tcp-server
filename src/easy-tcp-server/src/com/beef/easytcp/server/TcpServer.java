@@ -2,12 +2,15 @@ package com.beef.easytcp.server;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.nio.channels.CancelledKeyException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -52,20 +55,26 @@ public class TcpServer implements IServer {
 	protected GenericObjectPool<ChannelByteBuffer> _channelByteBufferPool;
 	
 	protected boolean _isAllocateDirect;
+	protected IWorkerDispatcher _workerDispatcher;
 	private ScheduledExecutorService _serverThreadPool;
 	
-	private AtomicInteger _clientSelectorCount = new AtomicInteger(0); 
+	private AtomicInteger _clientSelectorCount = new AtomicInteger(0);
+	
+	private ConcurrentLinkedQueue<SelectionKey> _didReadSelectionKeyQueue = new ConcurrentLinkedQueue<SelectionKey>();
 	
 	public TcpServer(
 			TcpServerConfig tcpServerConfig, 
-			boolean isAllocateDirect) {
+			boolean isAllocateDirect,
+			IWorkerDispatcher workerDispatcher
+			) {
 		_tcpServerConfig = tcpServerConfig;
 		_isAllocateDirect = isAllocateDirect;
+		_workerDispatcher = workerDispatcher;
 	}
 	
 	@Override
-	public void start() {
-		
+	public void start() throws IOException {
+		startTcpServer();
 	}
 
 	@Override
@@ -223,6 +232,9 @@ public class TcpServer implements IServer {
 				logger.info("accept() succeeded. client socketChannel is registered to clientSelectors["
 						.concat(String.valueOf(clientSelectorIndex)).concat("]"));
 				
+				//notify event
+				didConnect(selectionKey);
+				
 				return AcceptResult.Accepted;
 			} catch(NoSuchElementException e) {
 				logger.error("accept() failed. _channelByteBufferPool exhausted on reaching max connection count.", e);
@@ -234,6 +246,7 @@ public class TcpServer implements IServer {
 				} catch(Throwable e1) {
 					logger.error(null, e1);
 				}
+				//close accepted socket channel
 				closeSocketChannel(socketChannel);
 				logger.info("handleAccept() Close socketChannel for Error");
 				
@@ -259,6 +272,100 @@ public class TcpServer implements IServer {
 		
 		@Override
 		public void run() {
+			try {
+				if(_clientSelectors[_selectorIndex].select() != 0) {
+					Set<SelectionKey> keySet = _clientSelectors[_selectorIndex].selectedKeys();
+					
+					for(SelectionKey key : keySet) {
+						try {
+							if(!key.isValid()) {
+								continue;
+							}
+
+							if(key.isReadable()) {
+								handleRead(key);
+							}
+							
+							if(key.isWritable()) {
+								handleWrite(key);
+							}
+						} catch(CancelledKeyException e) {
+							logger.debug("IOThread key canceled");
+						} catch(Exception e) {
+							logger.error("IOThread error", e);
+						}
+					}
+					
+					keySet.clear();
+				}
+			} catch(Throwable e) {
+				logger.error("IOThread error", e);
+			}
+		}
+	}
+	
+	protected boolean handleRead(SelectionKey key) {
+		try {
+			SocketChannel socketChannel = (SocketChannel) key.channel();
+			ChannelByteBuffer buffer = (ChannelByteBuffer)key.attachment();
+			
+			if(!isConnected(socketChannel.socket())) {
+				clearSelectionKey(key);
+				logger.info("handleRead() Client socket channel close. Current connect status:"
+						.concat(String.valueOf(socketChannel.isConnected()))
+						);
+				return false;
+			} else {
+				boolean locked = buffer.getReadBufferLock().tryLock();
+				if(locked) {
+					try {
+						socketChannel.read(buffer.getReadBuffer());
+						
+						_didReadSelectionKeyQueue.add(key);
+						return true;
+					} finally {
+						buffer.getReadBufferLock().unlock();
+					}
+				}
+				
+				return false;
+			}
+		} catch(Exception e) {
+			logger.error("handleRead()", e);
+			return false;
+		}
+	}
+
+	protected boolean handleWrite(SelectionKey key) {
+		try {
+			SocketChannel socketChannel = (SocketChannel) key.channel();
+			ChannelByteBuffer buffer = (ChannelByteBuffer)key.attachment();
+			
+			if(!isConnected(socketChannel.socket())) {
+				clearSelectionKey(key);
+				logger.info("handleWrite() Client socket channel close. Current connect status:"
+						.concat(String.valueOf(socketChannel.isConnected()))
+						);
+				return false;
+			} else {
+				boolean locked = buffer.getWriteBufferLock().tryLock();
+				if(locked) {
+					try {
+						int writeCount = 0;
+						while(buffer.getWriteBuffer().remaining() > 0 
+								&& (writeCount++) < 5) {
+							socketChannel.write(buffer.getWriteBuffer());
+						}
+						return true;
+					} finally {
+						buffer.getWriteBufferLock().unlock();
+					}
+				}
+				return false;
+			}
+		} catch(Exception e) {
+			logger.error("handleWrite()", e);
+			return false;
 		}
 	}
 	
@@ -266,10 +373,65 @@ public class TcpServer implements IServer {
 
 		@Override
 		public void run() {
+			SelectionKey key;
+			while(true) {
+				key = _didReadSelectionKeyQueue.poll();
+				
+				if(key == null) {
+					break;
+				}
+				
+				try {
+					_workerDispatcher.handleDidRead(key);
+				} catch(Throwable e) {
+					logger.error("WorkerDispatcherThread error", e);
+				}
+			}
 		}
 		
 	}
 
+    protected static boolean isConnected(Socket socket) {
+		return socket != null && socket.isBound() && !socket.isClosed()
+			&& socket.isConnected() && !socket.isInputShutdown()
+			&& !socket.isOutputShutdown();
+    }
+	
+	protected void clearSelectionKey(SelectionKey selectionKey) {
+		try {
+			
+			if(selectionKey != null) {
+				try {
+					SocketChannel socketChannel = (SocketChannel) selectionKey.channel();
+					closeSocketChannel(socketChannel);
+					
+					if(selectionKey.attachment() != null) {
+						ChannelByteBuffer buffer = (ChannelByteBuffer)selectionKey.attachment();
+
+						//return to pool
+						_channelByteBufferPool.returnObject(buffer);
+
+						//notify event
+						didDisconnect(selectionKey);
+					} else {
+						logger.info("close server socketChannel");
+					}
+				} finally {
+					selectionKey.cancel();
+				}
+			}
+		} catch(Exception e) {
+			logger.error("clearSelectionKey()", e);
+		}
+	}
+	
+	protected void didConnect(SelectionKey selectionKey) {
+	}
+
+	protected void didDisconnect(SelectionKey selectionKey) {
+	}
+	
+	
 	protected static void closeSocketChannel(SocketChannel socketChannel) {
 		try {
 			if(!socketChannel.socket().isInputShutdown()) {
