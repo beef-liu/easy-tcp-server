@@ -1,4 +1,4 @@
-package com.beef.easytcp.base;
+package com.beef.easytcp.server.base;
 
 import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.PooledObjectFactory;

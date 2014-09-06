@@ -1,6 +1,4 @@
-package com.beef.easytcp.server;
-
-import static org.junit.Assert.*;
+package com.beef.easytcp.server.junittest;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,7 +11,7 @@ import org.junit.Test;
 import com.beef.easytcp.base.ChannelByteBuffer;
 import com.beef.easytcp.base.ChannelByteBufferPoolFactory;
 
-public class TcpServerTest {
+public class Test1 {
 
 	@Test
 	public void test2() {
@@ -61,5 +59,5 @@ public class TcpServerTest {
 			e.printStackTrace();
 		}
 	}
-
+	
 }

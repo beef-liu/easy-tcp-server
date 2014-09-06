@@ -23,6 +23,7 @@ import org.apache.log4j.Logger;
 import com.beef.easytcp.base.ChannelByteBuffer;
 import com.beef.easytcp.base.ChannelByteBufferPoolFactory;
 import com.beef.easytcp.server.config.TcpServerConfig;
+import com.beef.easytcp.server.worker.IWorkerDispatcher;
 
 /**
  * The work flow (Suppose that there is 4 CPU core):
@@ -60,7 +61,6 @@ public class TcpServer implements IServer {
 	
 	private AtomicInteger _clientSelectorCount = new AtomicInteger(0);
 	
-	private ConcurrentLinkedQueue<SelectionKey> _didReadSelectionKeyQueue = new ConcurrentLinkedQueue<SelectionKey>();
 	
 	public TcpServer(
 			TcpServerConfig tcpServerConfig, 
@@ -73,14 +73,29 @@ public class TcpServer implements IServer {
 	}
 	
 	@Override
-	public void start() throws IOException {
-		startTcpServer();
+	public void start() {
+		try {
+			startTcpServer();
+		} catch(Throwable e) {
+			logger.error("shutdown()", e);
+		}
 	}
 
 	@Override
 	public void shutdown() {
-		// TODO Auto-generated method stub
+		try {
+			closeSelector(_serverSelector);
+		} catch(Throwable e) {
+			logger.error("shutdown()", e);
+		}
 		
+		for(int i = 0; i < _clientSelectors.length; i++) {
+			try {
+				closeSelector(_clientSelectors[i]);
+			} catch(Throwable e) {
+				logger.error("shutdown()", e);
+			}
+		}
 	}
 	
 	private void startTcpServer() throws IOException {
@@ -146,7 +161,7 @@ public class TcpServer implements IServer {
 			
 			//worker dispatcher
 			_serverThreadPool.scheduleAtFixedRate(
-					new WorkerDispatcherThread(), initialDelay, threadPeriod, TimeUnit.MILLISECONDS);
+					_workerDispatcher, initialDelay, threadPeriod, TimeUnit.MILLISECONDS);
 		}
 		
 	}
@@ -219,6 +234,7 @@ public class TcpServer implements IServer {
 				
 				socketChannel.configureBlocking(false);
 				socketChannel.socket().setSendBufferSize(_tcpServerConfig.getSocketSendBufferSize());
+				socketChannel.socket().setReceiveBufferSize(_tcpServerConfig.getSocketReceiveBufferSize());
 				
 				int clientSelectorIndex = Math.abs(
 						_clientSelectorCount.getAndIncrement() % _clientSelectors.length);
@@ -318,13 +334,22 @@ public class TcpServer implements IServer {
 			} else {
 				boolean locked = buffer.getReadBufferLock().tryLock();
 				if(locked) {
+					int readTotalLen = 0;
+					
 					try {
-						socketChannel.read(buffer.getReadBuffer());
-						
-						_didReadSelectionKeyQueue.add(key);
-						return true;
+						int readCount = 0;
+						int readLen;
+						while((readLen = socketChannel.read(buffer.getReadBuffer())) > 0 
+								&& (readCount++) < 10) {
+							readTotalLen += readLen;
+						}
 					} finally {
 						buffer.getReadBufferLock().unlock();
+					}
+					
+					if(readTotalLen > 0) {
+						_workerDispatcher.addDidReadRequest(key);
+						return true;
 					}
 				}
 				
@@ -340,7 +365,7 @@ public class TcpServer implements IServer {
 		try {
 			SocketChannel socketChannel = (SocketChannel) key.channel();
 			ChannelByteBuffer buffer = (ChannelByteBuffer)key.attachment();
-			
+
 			if(!isConnected(socketChannel.socket())) {
 				clearSelectionKey(key);
 				logger.info("handleWrite() Client socket channel close. Current connect status:"
@@ -353,7 +378,7 @@ public class TcpServer implements IServer {
 					try {
 						int writeCount = 0;
 						while(buffer.getWriteBuffer().remaining() > 0 
-								&& (writeCount++) < 5) {
+								&& (writeCount++) < 10) {
 							socketChannel.write(buffer.getWriteBuffer());
 						}
 						return true;
@@ -369,34 +394,23 @@ public class TcpServer implements IServer {
 		}
 	}
 	
-	protected class WorkerDispatcherThread implements Runnable {
-
-		@Override
-		public void run() {
-			SelectionKey key;
-			while(true) {
-				key = _didReadSelectionKeyQueue.poll();
-				
-				if(key == null) {
-					break;
-				}
-				
-				try {
-					_workerDispatcher.handleDidRead(key);
-				} catch(Throwable e) {
-					logger.error("WorkerDispatcherThread error", e);
-				}
-			}
-		}
-		
-	}
-
     protected static boolean isConnected(Socket socket) {
 		return socket != null && socket.isBound() && !socket.isClosed()
 			&& socket.isConnected() && !socket.isInputShutdown()
 			&& !socket.isOutputShutdown();
     }
-	
+
+	protected void closeSelector(Selector selector) throws IOException {
+		selector.wakeup();
+		Set<SelectionKey> keySet = selector.selectedKeys();
+		
+		for(SelectionKey selectionKey : keySet) {
+			clearSelectionKey(selectionKey);			
+		}
+		
+		selector.close();
+	}
+    
 	protected void clearSelectionKey(SelectionKey selectionKey) {
 		try {
 			
@@ -406,10 +420,10 @@ public class TcpServer implements IServer {
 					closeSocketChannel(socketChannel);
 					
 					if(selectionKey.attachment() != null) {
-						ChannelByteBuffer buffer = (ChannelByteBuffer)selectionKey.attachment();
-
-						//return to pool
-						_channelByteBufferPool.returnObject(buffer);
+						//return byte buffer to pool
+						_channelByteBufferPool.returnObject(
+								(ChannelByteBuffer) selectionKey.attachment());
+						selectionKey.attach(null);
 
 						//notify event
 						didDisconnect(selectionKey);

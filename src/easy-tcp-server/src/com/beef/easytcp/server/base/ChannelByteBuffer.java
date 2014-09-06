@@ -1,4 +1,4 @@
-package com.beef.easytcp.base;
+package com.beef.easytcp.server.base;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.locks.ReentrantLock;
