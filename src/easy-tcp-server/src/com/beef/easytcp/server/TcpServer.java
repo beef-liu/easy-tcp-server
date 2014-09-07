@@ -110,6 +110,8 @@ public class TcpServer implements IServer {
 				logger.error("shutdown()", e);
 			}
 		}
+		
+		logger.info("Tcp Server shutted down <<<<<<<<<<<<<<<<<<<<<<<<<<<<");
 	}
 	
 	private void startTcpServer() throws IOException {
@@ -178,6 +180,9 @@ public class TcpServer implements IServer {
 					_workerDispatcher, initialDelay, threadPeriod, TimeUnit.MILLISECONDS);
 		}
 		
+		logger.info("Tcp Server Started. Listen at:" 
+				+ _tcpServerConfig.getHost() + ":" + _tcpServerConfig.getPort()
+				+ " >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
 	}
 	
 	protected class ListenerThread implements Runnable {
@@ -243,8 +248,7 @@ public class TcpServer implements IServer {
 			try {
 				buffer = _channelByteBufferPool.borrowObject();
 				
-				logger.debug("accepted client:".concat(
-						socketChannel.socket().getRemoteSocketAddress().toString()));
+				//logger.debug("accepted client:".concat(socketChannel.socket().getRemoteSocketAddress().toString()));
 				
 				socketChannel.configureBlocking(false);
 				socketChannel.socket().setSendBufferSize(_tcpServerConfig.getSocketSendBufferSize());
@@ -259,8 +263,12 @@ public class TcpServer implements IServer {
 						SelectionKey.OP_READ | SelectionKey.OP_WRITE, 
 						buffer);
 				
-				logger.info("accept() succeeded. client socketChannel is registered to clientSelectors["
-						.concat(String.valueOf(clientSelectorIndex)).concat("]"));
+				logger.info("accepted client:"
+						.concat(socketChannel.socket().getRemoteSocketAddress().toString())
+						.concat(" is registered to clientSelectors[")
+						.concat(String.valueOf(clientSelectorIndex))
+						.concat("]")
+						);
 				
 				//notify event
 				didConnect(selectionKey);
@@ -335,15 +343,12 @@ public class TcpServer implements IServer {
 	}
 	
 	protected boolean handleRead(SelectionKey key) {
+		SocketChannel socketChannel = (SocketChannel) key.channel();
 		try {
-			SocketChannel socketChannel = (SocketChannel) key.channel();
 			ChannelByteBuffer buffer = (ChannelByteBuffer)key.attachment();
 			
 			if(!isConnected(socketChannel.socket())) {
 				clearSelectionKey(key);
-				logger.info("handleRead() Client socket channel close. Current connect status:"
-						.concat(String.valueOf(socketChannel.isConnected()))
-						);
 				return false;
 			} else {
 				boolean locked = buffer.getReadBufferLock().tryLock();
@@ -362,7 +367,7 @@ public class TcpServer implements IServer {
 					}
 					
 					if(readTotalLen > 0) {
-						logger.info("handleRead() readTotalLen:" + readTotalLen);
+						logger.debug("handleRead() readTotalLen:" + readTotalLen);
 						_workerDispatcher.addDidReadRequest(key);
 						return true;
 					}
@@ -370,6 +375,9 @@ public class TcpServer implements IServer {
 				
 				return false;
 			}
+		} catch(IOException e) {
+			clearSelectionKey(key);
+			return false;
 		} catch(Exception e) {
 			logger.error("handleRead()", e);
 			return false;
@@ -377,15 +385,13 @@ public class TcpServer implements IServer {
 	}
 
 	protected boolean handleWrite(SelectionKey key) {
+		SocketChannel socketChannel = (SocketChannel) key.channel();
+
 		try {
-			SocketChannel socketChannel = (SocketChannel) key.channel();
 			ChannelByteBuffer buffer = (ChannelByteBuffer)key.attachment();
 
 			if(!isConnected(socketChannel.socket())) {
 				clearSelectionKey(key);
-				logger.info("handleWrite() Client socket channel close. Current connect status:"
-						.concat(String.valueOf(socketChannel.isConnected()))
-						);
 				return false;
 			} else {
 				boolean locked = buffer.getWriteBufferLock().tryLock();
@@ -409,6 +415,9 @@ public class TcpServer implements IServer {
 				}
 				return false;
 			}
+		} catch(IOException e) {
+			clearSelectionKey(key);
+			return false;
 		} catch(Exception e) {
 			logger.error("handleWrite()", e);
 			return false;
@@ -448,6 +457,8 @@ public class TcpServer implements IServer {
 
 						//notify event
 						didDisconnect(selectionKey);
+						
+						logger.info("close socket:".concat(socketChannel.socket().getRemoteSocketAddress().toString()));
 					} else {
 						logger.info("close server socketChannel");
 					}
