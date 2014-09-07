@@ -8,8 +8,8 @@ import org.apache.commons.pool2.impl.GenericObjectPool;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.junit.Test;
 
-import com.beef.easytcp.base.ChannelByteBuffer;
-import com.beef.easytcp.base.ChannelByteBufferPoolFactory;
+import com.beef.easytcp.server.base.ChannelByteBuffer;
+import com.beef.easytcp.server.base.ChannelByteBufferPoolFactory;
 
 public class Test1 {
 

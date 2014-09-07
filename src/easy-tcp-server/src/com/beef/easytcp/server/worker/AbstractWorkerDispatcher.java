@@ -10,6 +10,8 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.log4j.Logger;
 
+import com.beef.easytcp.server.base.ChannelByteBuffer;
+
 /**
  * This class is likely a demonstration that a way to handle request data to dispatch it to worker thread.
  * You could choose not to use this class and implement your own IWorkerDispatcher
@@ -23,31 +25,41 @@ public abstract class AbstractWorkerDispatcher implements IWorkerDispatcher {
 			new ConcurrentLinkedQueue<SelectionKey>();
 		
 	protected IWorkerFactory _workerFactory;
-	protected int _workerMaxCount;
+	protected int _workerCount;
 	
 	protected List<IWorker> _workerList;
 	protected ScheduledExecutorService _workerThreadPool;
 	
 	public AbstractWorkerDispatcher(IWorkerFactory workerFactory, 
-			int workerMaxCount, int workerInitCount) {
+			int workerCount) {
 		_workerFactory = workerFactory;
-		_workerMaxCount = workerMaxCount;
+		_workerCount = workerCount;
 		
 		_workerList = new ArrayList<IWorker>();
-		_workerThreadPool = Executors.newScheduledThreadPool(workerMaxCount);
+		_workerThreadPool = Executors.newScheduledThreadPool(_workerCount);
 
 		long threadPeriod = 1;
 		long initialDelay = 500;
 		
-		for(int i = 0; i < workerInitCount; i++) {
+		for(int i = 0; i < _workerCount; i++) {
+			final IWorker worker = workerFactory.createWorker();
+			_workerList.add(worker);
 			_workerThreadPool.scheduleAtFixedRate(
-					workerFactory.createWorker(), initialDelay, threadPeriod, TimeUnit.MILLISECONDS);
+					worker, initialDelay, threadPeriod, TimeUnit.MILLISECONDS);
 		}
 	}
 	
 	@Override
 	public void shutdown() {
 		_workerThreadPool.shutdownNow();
+		
+		for(int i = 0; i < _workerList.size(); i++) {
+			try {
+				_workerList.get(i).shutdown();
+			} catch(Throwable e) {
+				logger.error(null, e);
+			}
+		}
 	}
 	
 	@Override

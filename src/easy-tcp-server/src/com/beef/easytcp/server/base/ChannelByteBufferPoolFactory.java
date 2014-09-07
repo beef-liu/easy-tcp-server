@@ -21,6 +21,7 @@ public class ChannelByteBufferPoolFactory implements PooledObjectFactory<Channel
 		final ChannelByteBuffer channelByteBuffer = pooledChannelByteBuffer.getObject();
 		channelByteBuffer.getReadBuffer().clear();
 		channelByteBuffer.getWriteBuffer().clear();
+		channelByteBuffer.getWriteBuffer().flip();
 	}
 
 	@Override

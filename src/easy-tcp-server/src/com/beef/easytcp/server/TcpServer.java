@@ -10,7 +10,6 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.NoSuchElementException;
 import java.util.Set;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -20,8 +19,8 @@ import org.apache.commons.pool2.impl.GenericObjectPool;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
 
-import com.beef.easytcp.base.ChannelByteBuffer;
-import com.beef.easytcp.base.ChannelByteBufferPoolFactory;
+import com.beef.easytcp.server.base.ChannelByteBuffer;
+import com.beef.easytcp.server.base.ChannelByteBufferPoolFactory;
 import com.beef.easytcp.server.config.TcpServerConfig;
 import com.beef.easytcp.server.worker.IWorkerDispatcher;
 
@@ -55,20 +54,23 @@ public class TcpServer implements IServer {
 	
 	protected GenericObjectPool<ChannelByteBuffer> _channelByteBufferPool;
 	
-	protected boolean _isAllocateDirect;
 	protected IWorkerDispatcher _workerDispatcher;
 	private ScheduledExecutorService _serverThreadPool;
+	private boolean _isAllocateDirect = false;
 	
 	private AtomicInteger _clientSelectorCount = new AtomicInteger(0);
 	
 	
 	public TcpServer(
 			TcpServerConfig tcpServerConfig, 
-			boolean isAllocateDirect,
+			//boolean isAllocateDirect,
 			IWorkerDispatcher workerDispatcher
 			) {
 		_tcpServerConfig = tcpServerConfig;
-		_isAllocateDirect = isAllocateDirect;
+		
+		//if use ByteBuffer.allocateDirect(), then there is no backing array which means ByteBuffer.array() is null. And it is not convenient.
+		//_isAllocateDirect = isAllocateDirect;
+		
 		_workerDispatcher = workerDispatcher;
 	}
 	
@@ -83,6 +85,18 @@ public class TcpServer implements IServer {
 
 	@Override
 	public void shutdown() {
+		try {
+			_workerDispatcher.shutdown();
+		} catch(Throwable e) {
+			logger.error("shutdown()", e);
+		}
+
+		try {
+			_serverThreadPool.shutdownNow();
+		} catch(Throwable e) {
+			logger.error("shutdown()", e);
+		}
+		
 		try {
 			closeSelector(_serverSelector);
 		} catch(Throwable e) {
@@ -334,7 +348,7 @@ public class TcpServer implements IServer {
 			} else {
 				boolean locked = buffer.getReadBufferLock().tryLock();
 				if(locked) {
-					int readTotalLen = 0;
+					long readTotalLen = 0;
 					
 					try {
 						int readCount = 0;
@@ -348,6 +362,7 @@ public class TcpServer implements IServer {
 					}
 					
 					if(readTotalLen > 0) {
+						logger.info("handleRead() readTotalLen:" + readTotalLen);
 						_workerDispatcher.addDidReadRequest(key);
 						return true;
 					}
@@ -376,11 +391,17 @@ public class TcpServer implements IServer {
 				boolean locked = buffer.getWriteBufferLock().tryLock();
 				if(locked) {
 					try {
+						long writeTotalLen = 0;
 						int writeCount = 0;
 						while(buffer.getWriteBuffer().remaining() > 0 
 								&& (writeCount++) < 10) {
-							socketChannel.write(buffer.getWriteBuffer());
+							writeTotalLen += socketChannel.write(buffer.getWriteBuffer());
 						}
+						
+						if(writeTotalLen > 0) {
+							buffer.getWriteBuffer().clear().flip();
+						}
+						
 						return true;
 					} finally {
 						buffer.getWriteBufferLock().unlock();
@@ -452,25 +473,29 @@ public class TcpServer implements IServer {
 				socketChannel.socket().shutdownInput();
 			}
 		} catch(Exception e) {
+			logger.error(null, e);
 		}
 		
 		try {
-			if(socketChannel.socket().isOutputShutdown()) {
+			if(!socketChannel.socket().isOutputShutdown()) {
 				socketChannel.socket().shutdownOutput();
 			}
 		} catch(Exception e) {
+			logger.error(null, e);
 		}
 		
 		try {
-			if(socketChannel.socket().isClosed()) {
+			if(!socketChannel.socket().isClosed()) {
 				socketChannel.socket().close();
 			}
 		} catch(Exception e) {
+			logger.error(null, e);
 		}
 
 		try {
 			socketChannel.close();
 		} catch(Exception e) {
+			logger.error(null, e);
 		}
 	}
 	
