@@ -2,6 +2,8 @@ package com.beef.easytcp.server.junittest;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.commons.pool2.impl.GenericObjectPool;
@@ -14,6 +16,22 @@ import com.beef.easytcp.server.base.ChannelByteBufferPoolFactory;
 public class Test1 {
 
 	@Test
+	public void test3() {
+		try {
+			ExecutorService threadPool = Executors.newFixedThreadPool(4);
+			
+			threadPool.execute(new TestThread());
+			threadPool.execute(new TestThread());
+			threadPool.execute(new TestThread());
+			threadPool.execute(new TestThread());
+			
+			Thread.sleep(3000);
+			threadPool.shutdownNow();
+		} catch(Throwable e) {
+			e.printStackTrace();
+		}
+	}
+	
 	public void test2() {
 		AtomicInteger i = new AtomicInteger(Integer.MAX_VALUE);
 		int n = i.incrementAndGet();
@@ -60,4 +78,27 @@ public class Test1 {
 		}
 	}
 	
+	protected class TestThread extends Thread {
+		
+		protected void didStop() {
+			System.out.println("TestThread didStop()");
+		}
+
+		@Override
+		public void run() {
+			System.out.println("Start >>>>>>>>>>>>>>>>>>>");
+			
+			while(true) {
+				System.out.println("run loop -----");
+			
+				try {
+					Thread.sleep(1);
+				} catch(InterruptedException e) {
+					System.out.println("Stopped <<<<<<<<<<<<<<<<<<<< isAlive:" + this.isAlive());
+					didStop();
+				}
+			}
+		}
+		
+	}
 }

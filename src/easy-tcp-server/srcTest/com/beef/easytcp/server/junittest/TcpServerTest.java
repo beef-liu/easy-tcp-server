@@ -2,14 +2,15 @@ package com.beef.easytcp.server.junittest;
 
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
+import java.util.Random;
 
 import com.beef.easytcp.client.SyncTcpClient;
 import com.beef.easytcp.server.TcpServer;
 import com.beef.easytcp.server.base.ChannelByteBuffer;
 import com.beef.easytcp.server.config.TcpServerConfig;
+import com.beef.easytcp.server.worker.DefaultWorker;
+import com.beef.easytcp.server.worker.DefaultWorkerDispatcher;
 import com.beef.easytcp.server.worker.AbstractWorker;
-import com.beef.easytcp.server.worker.AbstractWorkerDispatcher;
-import com.beef.easytcp.server.worker.IWorker;
 import com.beef.easytcp.server.worker.IWorkerFactory;
 
 public class TcpServerTest {
@@ -19,24 +20,25 @@ public class TcpServerTest {
 			TcpServerConfig serverConfig = new TcpServerConfig();
 			serverConfig.setHost("127.0.0.1");
 			serverConfig.setPort(6381);
-			serverConfig.setConnectMaxCount(128);
+			serverConfig.setConnectMaxCount(10000);
 			serverConfig.setConnectTimeout(5000);
-			serverConfig.setConnectWaitCount(16);
+			serverConfig.setConnectWaitCount(1024);
 			serverConfig.setSocketIOThreadCount(2);
 			serverConfig.setSocketReceiveBufferSize(1024*16);
 			serverConfig.setSocketSendBufferSize(1024*16);
 			
+			int workerCount = 4;
 			TcpServer server = new TcpServer(serverConfig, 
-					new WorkerDispatcher(new WorkerFactory(), 1));
+					new WorkerDispatcher(new WorkerFactory(), workerCount));
 			
 			server.start();
 			System.out.println("Start server -------------");
 			
-			Thread.sleep(600000);
 			
-			System.out.println("Shuting down server -------------");
-			server.shutdown();
-			System.out.println("Shutted down server -------------");
+			//System.out.println("Shuting down server -------------");
+			//Thread.sleep(300000);
+			//server.shutdown();
+			//System.out.println("Shutted down server -------------");
 		} catch(Throwable e) {
 			e.printStackTrace();
 		}
@@ -46,25 +48,26 @@ public class TcpServerTest {
 	protected static class WorkerFactory implements IWorkerFactory {
 
 		@Override
-		public IWorker createWorker() {
+		public AbstractWorker createWorker() {
 			return new Worker("127.0.0.1", 6379);
 		}
 		
 	}
 
-	protected static class WorkerDispatcher extends AbstractWorkerDispatcher {
-
+	protected static class WorkerDispatcher extends DefaultWorkerDispatcher {
+		private Random _rand = new Random();
+		
 		public WorkerDispatcher(IWorkerFactory workerFactory, int workerCount) {
 			super(workerFactory, workerCount);
 		}
 
 		@Override
 		protected int chooseWorkerToDispatch(SelectionKey key) {
-			return 0;
+			return _rand.nextInt(_workerCount);
 		}
 	}
 	
-	protected static class Worker extends AbstractWorker {
+	protected static class Worker extends DefaultWorker {
 		private SyncTcpClient _tcpClient; 
 		
 		public Worker(String hostPassTo, int portPassTo) {
@@ -77,7 +80,7 @@ public class TcpServerTest {
 		}
 		
 		@Override
-		public void shutdown() {
+		public void destroy() {
 			try {
 				_tcpClient.disconnect();
 			} catch(Throwable e) {
@@ -106,7 +109,7 @@ public class TcpServerTest {
 						buffer.getWriteBuffer().capacity() - buffer.getWriteBuffer().limit());
 				if(receiveLen > 0) {
 					buffer.getWriteBuffer().limit(buffer.getWriteBuffer().limit() + receiveLen);
-					outputByteBufferStatus("after write response", buffer.getWriteBuffer());
+					//outputByteBufferStatus("after write response", buffer.getWriteBuffer());
 				}
 			} catch(Throwable e) {
 				e.printStackTrace();
@@ -114,6 +117,10 @@ public class TcpServerTest {
 				buffer.getWriteBufferLock().unlock();
 			}
 
+			try {
+				Thread.sleep(1);
+			} catch(InterruptedException e) {
+			}
 		}
 	}
 

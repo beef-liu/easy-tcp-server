@@ -76,11 +76,15 @@ public class SyncTcpClient implements ITcpClient {
     }
 	
     public void send(byte[] buffer, int offset, int len) throws IOException {
+    	connect();
+    	
     	_socket.getOutputStream().write(buffer, offset, len);
     	_socket.getOutputStream().flush();
     }
     
     public int receive(byte[] buffer, int offset, int readMaxLen) throws IOException {
+    	connect();
+    	
     	return _socket.getInputStream().read(buffer, offset, readMaxLen);
     }
     

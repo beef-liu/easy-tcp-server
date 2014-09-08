@@ -10,6 +10,7 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -22,7 +23,7 @@ import org.apache.log4j.Logger;
 import com.beef.easytcp.server.base.ChannelByteBuffer;
 import com.beef.easytcp.server.base.ChannelByteBufferPoolFactory;
 import com.beef.easytcp.server.config.TcpServerConfig;
-import com.beef.easytcp.server.worker.IWorkerDispatcher;
+import com.beef.easytcp.server.worker.AbstractWorkerDispatcher;
 
 /**
  * The work flow (Suppose that there is 4 CPU core):
@@ -45,17 +46,19 @@ import com.beef.easytcp.server.worker.IWorkerDispatcher;
 public class TcpServer implements IServer {
 	private final static Logger logger = Logger.getLogger(TcpServer.class);
 	
-	protected ScheduledExecutorService _threadPool;
+	protected final static long SLEEP_PERIOD = 1;
+	
 	protected TcpServerConfig _tcpServerConfig;
 
 	protected ServerSocketChannel _serverSocketChannel = null;
 	protected Selector _serverSelector = null;
-	protected Selector[] _clientSelectors = null;
+	protected Selector[] _readSelectors = null;
+	protected Selector[] _writeSelectors = null;
 	
 	protected GenericObjectPool<ChannelByteBuffer> _channelByteBufferPool;
 	
-	protected IWorkerDispatcher _workerDispatcher;
-	private ScheduledExecutorService _serverThreadPool;
+	protected AbstractWorkerDispatcher _workerDispatcher;
+	private ExecutorService _serverThreadPool;
 	private boolean _isAllocateDirect = false;
 	
 	private AtomicInteger _clientSelectorCount = new AtomicInteger(0);
@@ -64,7 +67,7 @@ public class TcpServer implements IServer {
 	public TcpServer(
 			TcpServerConfig tcpServerConfig, 
 			//boolean isAllocateDirect,
-			IWorkerDispatcher workerDispatcher
+			AbstractWorkerDispatcher workerDispatcher
 			) {
 		_tcpServerConfig = tcpServerConfig;
 		
@@ -86,7 +89,7 @@ public class TcpServer implements IServer {
 	@Override
 	public void shutdown() {
 		try {
-			_workerDispatcher.shutdown();
+			_workerDispatcher.destroy();
 		} catch(Throwable e) {
 			logger.error("shutdown()", e);
 		}
@@ -103,9 +106,17 @@ public class TcpServer implements IServer {
 			logger.error("shutdown()", e);
 		}
 		
-		for(int i = 0; i < _clientSelectors.length; i++) {
+		for(int i = 0; i < _readSelectors.length; i++) {
 			try {
-				closeSelector(_clientSelectors[i]);
+				closeSelector(_readSelectors[i]);
+			} catch(Throwable e) {
+				logger.error("shutdown()", e);
+			}
+		}
+
+		for(int i = 0; i < _writeSelectors.length; i++) {
+			try {
+				closeSelector(_writeSelectors[i]);
 			} catch(Throwable e) {
 				logger.error("shutdown()", e);
 			}
@@ -157,27 +168,36 @@ public class TcpServer implements IServer {
 
 			//init threads(listener, IO, worker dispatcher)
 			int threadCount = 1 + _tcpServerConfig.getSocketIOThreadCount() + 1;
-			_serverThreadPool = Executors.newScheduledThreadPool(threadCount);
+			_serverThreadPool = Executors.newFixedThreadPool(threadCount);
 
 			long threadPeriod = 1;
 			long initialDelay = 1000;
 			
 			//Listener
-			_serverThreadPool.scheduleAtFixedRate(
-					new ListenerThread(), initialDelay, threadPeriod, TimeUnit.MILLISECONDS);
-			
+//			_serverThreadPool.scheduleAtFixedRate(
+//					new ListenerThread(), initialDelay, threadPeriod, TimeUnit.MILLISECONDS);
+			_serverThreadPool.execute(new ListenerThread());
 			
 			//IO Threads
-			_clientSelectors = new Selector[_tcpServerConfig.getSocketIOThreadCount()]; 
-			for(int i = 0; i < _clientSelectors.length; i++) {
-				_clientSelectors[i] = Selector.open();
-				_serverThreadPool.scheduleAtFixedRate(
-						new IOThread(i), initialDelay, threadPeriod, TimeUnit.MILLISECONDS);
+			int ioSelectorCount = (int) Math.ceil(_tcpServerConfig.getSocketIOThreadCount() / 2.0); 
+
+			_readSelectors = new Selector[ioSelectorCount]; 
+			for(int i = 0; i < _readSelectors.length; i++) {
+				_readSelectors[i] = Selector.open();
+				_serverThreadPool.execute(new ReadThread(i));
 			}
 			
+			_writeSelectors = new Selector[ioSelectorCount]; 
+			for(int i = 0; i < _writeSelectors.length; i++) {
+				_writeSelectors[i] = Selector.open();
+				_serverThreadPool.execute(new WriteThread(i));
+			}
+			
+			
 			//worker dispatcher
-			_serverThreadPool.scheduleAtFixedRate(
-					_workerDispatcher, initialDelay, threadPeriod, TimeUnit.MILLISECONDS);
+//			_serverThreadPool.scheduleAtFixedRate(
+//					_workerDispatcher, initialDelay, threadPeriod, TimeUnit.MILLISECONDS);
+			_serverThreadPool.execute(_workerDispatcher);
 		}
 		
 		logger.info("Tcp Server Started. Listen at:" 
@@ -185,29 +205,38 @@ public class TcpServer implements IServer {
 				+ " >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
 	}
 	
-	protected class ListenerThread implements Runnable {
+	protected class ListenerThread extends Thread {
+		
 		@Override
 		public void run() {
-			try {
-				if(_serverSelector.select() != 0) {
-					Set<SelectionKey> keySet = _serverSelector.selectedKeys();
-					
-					for(SelectionKey key : keySet) {
-						if(!key.isValid()) {
-							continue;
-						}
+			while(true) {
+				try {
+					if(_serverSelector.select() != 0) {
+						Set<SelectionKey> keySet = _serverSelector.selectedKeys();
+						
+						for(SelectionKey key : keySet) {
+							if(!key.isValid()) {
+								continue;
+							}
 
-						//isAcceptable为true的key是监听器，不可能有read,write事件
-						if(key.isAcceptable()) {
-							//accept connection
-							handleAccept(key);
+							if(key.isAcceptable()) {
+								handleAccept(key);
+							}
 						}
+						
+						keySet.clear();
 					}
 					
-					keySet.clear();
+				} catch(Throwable e) {
+					logger.error("ListenerThread.run() Error Occurred", e); 
+				} finally {
+					try {
+						Thread.sleep(SLEEP_PERIOD);
+					} catch(InterruptedException e) {
+						logger.info("ListenerThread InterruptedException -----");
+						break;
+					}
 				}
-			} catch(Throwable e) {
-				logger.error("ListenerThread.run() Error Occurred", e); 
 			}
 		}
 	}
@@ -255,12 +284,21 @@ public class TcpServer implements IServer {
 				socketChannel.socket().setReceiveBufferSize(_tcpServerConfig.getSocketReceiveBufferSize());
 				
 				int clientSelectorIndex = Math.abs(
-						_clientSelectorCount.getAndIncrement() % _clientSelectors.length);
+						_clientSelectorCount.getAndIncrement() % _readSelectors.length);
 				
-				_clientSelectors[clientSelectorIndex].wakeup();
+				//logger.debug("registerring client socketChannel");
+				_readSelectors[clientSelectorIndex].wakeup();
 				SelectionKey selectionKey = socketChannel.register(
-						_clientSelectors[clientSelectorIndex], 
-						SelectionKey.OP_READ | SelectionKey.OP_WRITE, 
+						_readSelectors[clientSelectorIndex], 
+						SelectionKey.OP_READ 
+						//| SelectionKey.OP_WRITE
+						, 
+						buffer);
+
+				_writeSelectors[clientSelectorIndex].wakeup();
+				SelectionKey selectionKeyW = socketChannel.register(
+						_writeSelectors[clientSelectorIndex], 
+						SelectionKey.OP_WRITE, 
 						buffer);
 				
 				logger.info("accepted client:"
@@ -301,43 +339,102 @@ public class TcpServer implements IServer {
 		}
 	}
 	
-	protected class IOThread implements Runnable {
+	protected class ReadThread extends Thread {
 		private int _selectorIndex;
 		
-		public IOThread(int selectorIndex) {
+		public ReadThread(int selectorIndex) {
 			_selectorIndex = selectorIndex;
 		}
 		
 		@Override
 		public void run() {
-			try {
-				if(_clientSelectors[_selectorIndex].select() != 0) {
-					Set<SelectionKey> keySet = _clientSelectors[_selectorIndex].selectedKeys();
-					
-					for(SelectionKey key : keySet) {
-						try {
-							if(!key.isValid()) {
-								continue;
-							}
+			while(true) {
+				try {
+					logger.debug("ReadThread[" + _selectorIndex + "] >>>>>>>>>>>>>>");
+					if(_readSelectors[_selectorIndex].select() != 0) {
+						Set<SelectionKey> keySet = _readSelectors[_selectorIndex].selectedKeys();
+						
+						for(SelectionKey key : keySet) {
+							try {
+								if(!key.isValid()) {
+									continue;
+								}
 
-							if(key.isReadable()) {
-								handleRead(key);
+								if(key.isReadable()) {
+									handleRead(key);
+								}
+							} catch(CancelledKeyException e) {
+								logger.debug("IOThread key canceled");
+							} catch(Exception e) {
+								logger.error("IOThread error", e);
 							}
-							
-							if(key.isWritable()) {
-								handleWrite(key);
-							}
-						} catch(CancelledKeyException e) {
-							logger.debug("IOThread key canceled");
-						} catch(Exception e) {
-							logger.error("IOThread error", e);
 						}
+						
+						keySet.clear();
 					}
-					
-					keySet.clear();
+
+					logger.debug("ReadThread[" + _selectorIndex + "] <<<<<<<<<<<<<");
+				} catch(Throwable e) {
+					logger.error("IOThread error", e);
+				} finally {
+					/* Read Key.select() will block until data arrive, so no need to sleep
+					try {
+						Thread.sleep(SLEEP_PERIOD);
+					} catch(InterruptedException e) {
+						logger.info("IOThread InterruptedException -----");
+						break;
+					}
+					*/
 				}
-			} catch(Throwable e) {
-				logger.error("IOThread error", e);
+			}
+		}
+	}
+
+	protected class WriteThread extends Thread {
+		private int _selectorIndex;
+		
+		public WriteThread(int selectorIndex) {
+			_selectorIndex = selectorIndex;
+		}
+		
+		@Override
+		public void run() {
+			while(true) {
+				try {
+					//logger.debug("WriteThread[" + _selectorIndex + "] >>>>>>>>>>>>>>");
+					if(_writeSelectors[_selectorIndex].select() != 0) {
+						Set<SelectionKey> keySet = _writeSelectors[_selectorIndex].selectedKeys();
+						
+						for(SelectionKey key : keySet) {
+							try {
+								if(!key.isValid()) {
+									continue;
+								}
+
+								if(key.isWritable()) {
+									handleWrite(key);
+								}
+							} catch(CancelledKeyException e) {
+								logger.debug("IOThread key canceled");
+							} catch(Exception e) {
+								logger.error("IOThread error", e);
+							}
+						}
+						
+						keySet.clear();
+					}
+
+					//logger.debug("WriteThread[" + _selectorIndex + "] <<<<<<<<<<<<<");
+				} catch(Throwable e) {
+					logger.error("IOThread error", e);
+				} finally {
+					try {
+						Thread.sleep(SLEEP_PERIOD);
+					} catch(InterruptedException e) {
+						logger.info("IOThread InterruptedException -----");
+						break;
+					}
+				}
 			}
 		}
 	}
@@ -361,6 +458,13 @@ public class TcpServer implements IServer {
 						while((readLen = socketChannel.read(buffer.getReadBuffer())) > 0 
 								&& (readCount++) < 10) {
 							readTotalLen += readLen;
+						}
+						
+						if(readLen == -1) {
+							//client is disconnected
+							clearSelectionKey(key);
+							//logger.debug("readLen is -1");
+							return false;
 						}
 					} finally {
 						buffer.getReadBufferLock().unlock();
@@ -484,7 +588,7 @@ public class TcpServer implements IServer {
 				socketChannel.socket().shutdownInput();
 			}
 		} catch(Exception e) {
-			logger.error(null, e);
+			logger.info(e);
 		}
 		
 		try {
@@ -492,7 +596,8 @@ public class TcpServer implements IServer {
 				socketChannel.socket().shutdownOutput();
 			}
 		} catch(Exception e) {
-			logger.error(null, e);
+			//mostly client disconnected
+			//logger.error(null, e);
 		}
 		
 		try {
