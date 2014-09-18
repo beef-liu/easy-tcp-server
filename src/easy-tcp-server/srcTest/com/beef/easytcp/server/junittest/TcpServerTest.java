@@ -27,7 +27,7 @@ public class TcpServerTest {
 			serverConfig.setSocketReceiveBufferSize(1024*16);
 			serverConfig.setSocketSendBufferSize(1024*16);
 			
-			int workerCount = 4;
+			int workerCount = 8;
 			TcpServer server = new TcpServer(serverConfig, 
 					new WorkerDispatcher(new WorkerFactory(), workerCount));
 			
@@ -55,7 +55,8 @@ public class TcpServerTest {
 	}
 
 	protected static class WorkerDispatcher extends DefaultWorkerDispatcher {
-		private Random _rand = new Random();
+		//private Random _rand = new Random();
+		long _dispatchCount = 0;
 		
 		public WorkerDispatcher(IWorkerFactory workerFactory, int workerCount) {
 			super(workerFactory, workerCount);
@@ -63,7 +64,9 @@ public class TcpServerTest {
 
 		@Override
 		protected int chooseWorkerToDispatch(SelectionKey key) {
-			return _rand.nextInt(_workerCount);
+			//return _rand.nextInt(_workerCount);
+			return (int) (_dispatchCount++) % _workerCount;
+			//return 0;
 		}
 	}
 	
@@ -92,35 +95,37 @@ public class TcpServerTest {
 		protected void handleDidReadRequest(SelectionKey key) {
 			ChannelByteBuffer buffer = (ChannelByteBuffer) key.attachment();
 
-			buffer.getReadBufferLock().lock();
-			try {
-				_tcpClient.send(buffer.getReadBuffer().array(), 0, buffer.getReadBuffer().position());
-				buffer.getReadBuffer().clear();
-			} catch(Throwable e) {
-				e.printStackTrace();
-			} finally {
-				buffer.getReadBufferLock().unlock();
+			if(buffer.tryLockReadBuffer()) {
+				try {
+					_tcpClient.send(buffer.getReadBuffer().array(), 0, buffer.getReadBuffer().position());
+					buffer.getReadBuffer().clear();
+				} catch(Throwable e) {
+					e.printStackTrace();
+				} finally {
+					buffer.unlockReadBufferLock();
+				}
 			}
 			
-			buffer.getWriteBufferLock().lock();
-			try {
-				int receiveLen = _tcpClient.receive(buffer.getWriteBuffer().array(), 
-						buffer.getWriteBuffer().limit(), 
-						buffer.getWriteBuffer().capacity() - buffer.getWriteBuffer().limit());
-				if(receiveLen > 0) {
-					buffer.getWriteBuffer().limit(buffer.getWriteBuffer().limit() + receiveLen);
-					//outputByteBufferStatus("after write response", buffer.getWriteBuffer());
+			if(buffer.tryLockWriteBuffer()) {
+				try {
+					int receiveLen = _tcpClient.receive(buffer.getWriteBuffer().array(), 
+							buffer.getWriteBuffer().limit(), 
+							buffer.getWriteBuffer().capacity() - buffer.getWriteBuffer().limit());
+					if(receiveLen > 0) {
+						buffer.getWriteBuffer().limit(buffer.getWriteBuffer().limit() + receiveLen);
+						//outputByteBufferStatus("after write response", buffer.getWriteBuffer());
+					}
+				} catch(Throwable e) {
+					e.printStackTrace();
+				} finally {
+					buffer.unlockWriteBufferLock();
 				}
-			} catch(Throwable e) {
-				e.printStackTrace();
-			} finally {
-				buffer.getWriteBufferLock().unlock();
 			}
 
-			try {
-				Thread.sleep(1);
-			} catch(InterruptedException e) {
-			}
+//			try {
+//				Thread.sleep(1);
+//			} catch(InterruptedException e) {
+//			}
 		}
 	}
 

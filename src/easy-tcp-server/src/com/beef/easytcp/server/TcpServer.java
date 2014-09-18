@@ -428,12 +428,14 @@ public class TcpServer implements IServer {
 				} catch(Throwable e) {
 					logger.error("IOThread error", e);
 				} finally {
+					/*
 					try {
 						Thread.sleep(SLEEP_PERIOD);
 					} catch(InterruptedException e) {
 						logger.info("IOThread InterruptedException -----");
 						break;
 					}
+					*/
 				}
 			}
 		}
@@ -448,8 +450,8 @@ public class TcpServer implements IServer {
 				clearSelectionKey(key);
 				return false;
 			} else {
-				boolean locked = buffer.getReadBufferLock().tryLock();
-				if(locked) {
+				//if(buffer.tryLockReadBuffer()) 
+				{
 					long readTotalLen = 0;
 					
 					try {
@@ -467,7 +469,7 @@ public class TcpServer implements IServer {
 							return false;
 						}
 					} finally {
-						buffer.getReadBufferLock().unlock();
+						buffer.unlockReadBufferLock();
 					}
 					
 					if(readTotalLen > 0) {
@@ -498,8 +500,8 @@ public class TcpServer implements IServer {
 				clearSelectionKey(key);
 				return false;
 			} else {
-				boolean locked = buffer.getWriteBufferLock().tryLock();
-				if(locked) {
+				if(buffer.tryLockWriteBuffer()) 
+				{
 					try {
 						long writeTotalLen = 0;
 						int writeCount = 0;
@@ -514,7 +516,7 @@ public class TcpServer implements IServer {
 						
 						return true;
 					} finally {
-						buffer.getWriteBufferLock().unlock();
+						buffer.unlockWriteBufferLock();
 					}
 				}
 				return false;

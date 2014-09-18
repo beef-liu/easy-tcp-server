@@ -15,7 +15,6 @@ import com.beef.easytcp.server.base.ChannelByteBufferPoolFactory;
 
 public class Test1 {
 
-	@Test
 	public void test3() {
 		try {
 			ExecutorService threadPool = Executors.newFixedThreadPool(4);
@@ -38,6 +37,7 @@ public class Test1 {
 		System.out.println("n:" + n + " mod:" + (n % 5));
 	}
 	
+	@Test
 	public void test1() {
 		try {
 			int bufferSize = 1024 * 4;

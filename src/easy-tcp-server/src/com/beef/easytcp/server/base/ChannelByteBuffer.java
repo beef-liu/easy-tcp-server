@@ -2,10 +2,15 @@ package com.beef.easytcp.server.base;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class ChannelByteBuffer {
 	private ReentrantLock _readBufferLock = new ReentrantLock();
 	private ReentrantLock _writeBufferLock = new ReentrantLock();
+	
+	private volatile boolean _isReadLocked = false;
+	private volatile boolean _isWriteLocked = false;
+	
 	
 	private ByteBuffer _readBuffer;
 	private ByteBuffer _writeBuffer;
@@ -39,6 +44,7 @@ public class ChannelByteBuffer {
 		return _writeBuffer;
 	}
 
+	/*
 	public ReentrantLock getReadBufferLock() {
 		return _readBufferLock;
 	}
@@ -46,5 +52,31 @@ public class ChannelByteBuffer {
 	public ReentrantLock getWriteBufferLock() {
 		return _writeBufferLock;
 	}
+	*/
 	
+	public boolean tryLockReadBuffer() {
+		if(_isReadLocked) {
+			return false;
+		} else {
+			_isReadLocked = false;
+			return true;
+		}
+	}
+
+	public void unlockReadBufferLock() {
+		_isReadLocked = false;
+	}
+	
+	public boolean tryLockWriteBuffer() {
+		if(_isWriteLocked) {
+			return false;
+		} else {
+			_isWriteLocked = false;
+			return true;
+		}
+	}
+	
+	public void unlockWriteBufferLock() {
+		_isWriteLocked = false;
+	}
 }
