@@ -5,7 +5,10 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 
 public class SyncTcpClient implements ITcpClient {
-	protected TcpClientConfig _config;
+	protected String _host;
+	protected int _port;
+	protected int _timeout;
+	
 	protected Socket _socket;
 	
 	/**
@@ -14,8 +17,10 @@ public class SyncTcpClient implements ITcpClient {
 	 * @param port
 	 * @param connectTimeout in millisecond
 	 */
-	public SyncTcpClient(TcpClientConfig tcpConfig) {
-		_config = tcpConfig;
+	public SyncTcpClient(String host, int port, int connectTimeout) {
+		_host = host;
+		_port = port;
+		_timeout = connectTimeout;
 	}
 	
 	@Override
@@ -23,20 +28,13 @@ public class SyncTcpClient implements ITcpClient {
 		if (!isConnected()) {
 			_socket = new Socket();
 			
-			_socket.setReuseAddress(_config.isReuseAddress());
-			_socket.setKeepAlive(_config.isKeepAlive());
-			_socket.setTcpNoDelay(_config.isTcpNoDelay());
-			
+			_socket.setReuseAddress(true);
+			_socket.setKeepAlive(true);
+			_socket.setTcpNoDelay(true);
 			_socket.setSoLinger(true, 0);
-			
-			_socket.setReceiveBufferSize(_config.getReceiveBufferSize());
-			_socket.setSendBufferSize(_config.getSendBufferSize());
-			
-			_socket.setSoTimeout(_config.getSoTimeoutMS());
-			
-			_socket.connect(
-					new InetSocketAddress(_config.getHost(), _config.getPort()), 
-					_config.getConnectTimeoutMS());
+
+			_socket.connect(new InetSocketAddress(_host, _port), _timeout);
+			_socket.setSoTimeout(_timeout);
 		}
     }
 

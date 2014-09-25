@@ -1,4 +1,4 @@
-package com.beef.easytcp.server.junittest;
+package com.beef.easytcp.junittest;
 
 import static org.junit.Assert.*;
 

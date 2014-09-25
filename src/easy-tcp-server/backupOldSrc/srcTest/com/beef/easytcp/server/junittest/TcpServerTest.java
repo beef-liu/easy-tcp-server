@@ -2,7 +2,10 @@ package com.beef.easytcp.server.junittest;
 
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
+import java.util.Arrays;
 import java.util.Random;
+
+import org.apache.log4j.Logger;
 
 import com.beef.easytcp.client.SyncTcpClient;
 import com.beef.easytcp.server.TcpServer;
@@ -14,6 +17,7 @@ import com.beef.easytcp.server.worker.AbstractWorker;
 import com.beef.easytcp.server.worker.IWorkerFactory;
 
 public class TcpServerTest {
+	private final static Logger logger = Logger.getLogger(TcpServerTest.class);
 	
 	public static void main(String[] args) {
 		try {
@@ -95,6 +99,7 @@ public class TcpServerTest {
 		protected void handleDidReadRequest(SelectionKey key) {
 			ChannelByteBuffer buffer = (ChannelByteBuffer) key.attachment();
 
+			/*
 			if(buffer.tryLockReadBuffer()) {
 				try {
 					_tcpClient.send(buffer.getReadBuffer().array(), 0, buffer.getReadBuffer().position());
@@ -105,7 +110,25 @@ public class TcpServerTest {
 					buffer.unlockReadBufferLock();
 				}
 			}
+			*/
+			try {
+				final byte[] buf = buffer.getReadBuffer().array();
+				byte rtn = (byte)0x0a;
+				int cmdEnd;
+				int offset = 0;
+				while((cmdEnd = Arrays.binarySearch(buf, rtn)) >= 0) {
+					//send one cmd
+					_tcpClient.send(
+							buf, 0, buffer.getReadBuffer().position());
+					
+					
+				}
+				
+			} catch(Throwable e) {
+				logger.error(null, e);
+			}
 			
+			/*
 			if(buffer.tryLockWriteBuffer()) {
 				try {
 					int receiveLen = _tcpClient.receive(buffer.getWriteBuffer().array(), 
@@ -121,7 +144,20 @@ public class TcpServerTest {
 					buffer.unlockWriteBufferLock();
 				}
 			}
+			*/
 
+			try {
+				int receiveLen = _tcpClient.receive(buffer.getWriteBuffer().array(), 
+						buffer.getWriteBuffer().limit(), 
+						buffer.getWriteBuffer().capacity() - buffer.getWriteBuffer().limit());
+				if(receiveLen > 0) {
+					buffer.getWriteBuffer().limit(buffer.getWriteBuffer().limit() + receiveLen);
+					//outputByteBufferStatus("after write response", buffer.getWriteBuffer());
+				}
+			} catch(Throwable e) {
+				logger.error(null, e);
+			}
+			
 //			try {
 //				Thread.sleep(1);
 //			} catch(InterruptedException e) {

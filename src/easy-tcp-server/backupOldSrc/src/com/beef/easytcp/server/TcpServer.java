@@ -8,25 +8,22 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
-import java.util.Iterator;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.commons.pool2.impl.GenericObjectPool;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
 
-import com.beef.easytcp.ITcpEventHandler;
-import com.beef.easytcp.MessageList;
-import com.beef.easytcp.SelectionKeyWrapper;
-import com.beef.easytcp.SessionObj;
-import com.beef.easytcp.SocketChannelUtil;
-import com.beef.easytcp.server.buffer.ByteBufferPool;
-import com.beef.easytcp.server.buffer.ByteBufferPoolFactory;
-import com.beef.easytcp.server.buffer.PooledByteBuffer;
+import com.beef.easytcp.server.base.ChannelByteBuffer;
+import com.beef.easytcp.server.base.ChannelByteBufferPoolFactory;
 import com.beef.easytcp.server.config.TcpServerConfig;
-import com.beef.easytcp.server.handler.ITcpEventHandlerFactory;
+import com.beef.easytcp.server.worker.AbstractWorkerDispatcher;
 
 /**
  * The work flow (Suppose that there is 4 CPU core):
@@ -56,33 +53,28 @@ public class TcpServer implements IServer {
 	protected ServerSocketChannel _serverSocketChannel = null;
 	protected Selector _serverSelector = null;
 	protected Selector[] _readSelectors = null;
-	//protected Selector[] _writeSelectors = null;
-	protected Selector _writeSelector = null;
+	protected Selector[] _writeSelectors = null;
 	
-	protected ByteBufferPool _bufferPool;
-	protected ITcpEventHandlerFactory _eventHandlerFactory;
+	protected GenericObjectPool<ChannelByteBuffer> _channelByteBufferPool;
 	
-	protected ExecutorService _serverThreadPool;
-	protected ExecutorService _eventHandlerThreadPool;
-	
-	
-	protected boolean _isAllocateDirect = false;
+	protected AbstractWorkerDispatcher _workerDispatcher;
+	private ExecutorService _serverThreadPool;
+	private boolean _isAllocateDirect = false;
 	
 	private AtomicInteger _clientSelectorCount = new AtomicInteger(0);
-	protected AtomicInteger _sessionIdSeed = new AtomicInteger(0);
-	protected AtomicInteger _connecttingSocketCount = new AtomicInteger(0);
+	
 	
 	public TcpServer(
 			TcpServerConfig tcpServerConfig, 
-			boolean isAllocateDirect,
-			ITcpEventHandlerFactory eventHandlerFactory
+			//boolean isAllocateDirect,
+			AbstractWorkerDispatcher workerDispatcher
 			) {
 		_tcpServerConfig = tcpServerConfig;
 		
-		//if use ByteBuffer.allocateDirect(), then there is no backing array which means ByteBuffer.array() is null.
-		_isAllocateDirect = isAllocateDirect;
+		//if use ByteBuffer.allocateDirect(), then there is no backing array which means ByteBuffer.array() is null. And it is not convenient.
+		//_isAllocateDirect = isAllocateDirect;
 		
-		_eventHandlerFactory = eventHandlerFactory;
+		_workerDispatcher = workerDispatcher;
 	}
 	
 	@Override
@@ -90,14 +82,14 @@ public class TcpServer implements IServer {
 		try {
 			startTcpServer();
 		} catch(Throwable e) {
-			logger.error("start()", e);
+			logger.error("shutdown()", e);
 		}
 	}
 
 	@Override
 	public void shutdown() {
 		try {
-			_eventHandlerThreadPool.shutdownNow();
+			_workerDispatcher.destroy();
 		} catch(Throwable e) {
 			logger.error("shutdown()", e);
 		}
@@ -121,8 +113,7 @@ public class TcpServer implements IServer {
 				logger.error("shutdown()", e);
 			}
 		}
-		
-		/*
+
 		for(int i = 0; i < _writeSelectors.length; i++) {
 			try {
 				closeSelector(_writeSelectors[i]);
@@ -130,13 +121,6 @@ public class TcpServer implements IServer {
 				logger.error("shutdown()", e);
 			}
 		}
-		*/
-		try {
-			closeSelector(_writeSelector);
-		} catch(Throwable e) {
-			logger.error("shutdown()", e);
-		}
-		
 		
 		logger.info("Tcp Server shutted down <<<<<<<<<<<<<<<<<<<<<<<<<<<<");
 	}
@@ -145,10 +129,11 @@ public class TcpServer implements IServer {
 		//The brace is just for reading clearly
 		{
 			//init bytebuffer pool -----------------------------
-			int bufferByteSize = _tcpServerConfig.getSocketReceiveBufferSize();
-			ByteBufferPoolFactory byteBufferPoolFactory = new ByteBufferPoolFactory(
-					_isAllocateDirect, bufferByteSize);
-			
+			ChannelByteBufferPoolFactory byteBufferPoolFactory = new ChannelByteBufferPoolFactory(
+					_isAllocateDirect, 
+					_tcpServerConfig.getSocketReceiveBufferSize(), 
+					_tcpServerConfig.getSocketSendBufferSize()
+					);
 			GenericObjectPoolConfig byteBufferPoolConfig = new GenericObjectPoolConfig();
 			byteBufferPoolConfig.setMaxIdle(_tcpServerConfig.getConnectMaxCount());
 			/* old version
@@ -161,8 +146,8 @@ public class TcpServer implements IServer {
 			//byteBufferPoolConfig.setSoftMinEvictableIdleTimeMillis(_softMinEvictableIdleTimeMillis);
 			//byteBufferPoolConfig.setTestOnBorrow(_testOnBorrow);
 
-			_bufferPool = new ByteBufferPool(
-					byteBufferPoolConfig, _isAllocateDirect, bufferByteSize); 
+			_channelByteBufferPool = new GenericObjectPool<ChannelByteBuffer>(
+					byteBufferPoolFactory, byteBufferPoolConfig);
 		}
 		
 		{
@@ -182,14 +167,8 @@ public class TcpServer implements IServer {
 			_serverSocketChannel.register(_serverSelector, SelectionKey.OP_ACCEPT);
 
 			//init threads(listener, IO, worker dispatcher)
-			{
-				int threadCount = 1 + _tcpServerConfig.getSocketIOThreadCount() + 1;
-				_serverThreadPool = Executors.newFixedThreadPool(threadCount);
-			}
-			{
-				int threadCount = (int) Math.ceil(_tcpServerConfig.getConnectMaxCount() * 1.5);
-				_eventHandlerThreadPool = Executors.newFixedThreadPool(threadCount);
-			}
+			int threadCount = 1 + _tcpServerConfig.getSocketIOThreadCount() + 1;
+			_serverThreadPool = Executors.newFixedThreadPool(threadCount);
 
 			long threadPeriod = 1;
 			long initialDelay = 1000;
@@ -200,8 +179,7 @@ public class TcpServer implements IServer {
 			_serverThreadPool.execute(new ListenerThread());
 			
 			//IO Threads
-			//int ioSelectorCount = (int) Math.ceil(_tcpServerConfig.getSocketIOThreadCount() / 2.0);
-			int ioSelectorCount = _tcpServerConfig.getSocketIOThreadCount();
+			int ioSelectorCount = (int) Math.ceil(_tcpServerConfig.getSocketIOThreadCount() / 2.0); 
 
 			_readSelectors = new Selector[ioSelectorCount]; 
 			for(int i = 0; i < _readSelectors.length; i++) {
@@ -209,18 +187,17 @@ public class TcpServer implements IServer {
 				_serverThreadPool.execute(new ReadThread(i));
 			}
 			
-			/*
 			_writeSelectors = new Selector[ioSelectorCount]; 
 			for(int i = 0; i < _writeSelectors.length; i++) {
 				_writeSelectors[i] = Selector.open();
-				//_serverThreadPool.execute(new WriteThread(i));
+				_serverThreadPool.execute(new WriteThread(i));
 			}
-			*/
-			_writeSelector = Selector.open();
 			
 			
 			//worker dispatcher
-			//_serverThreadPool.execute(_workerDispatcher);
+//			_serverThreadPool.scheduleAtFixedRate(
+//					_workerDispatcher, initialDelay, threadPeriod, TimeUnit.MILLISECONDS);
+			_serverThreadPool.execute(_workerDispatcher);
 		}
 		
 		logger.info("Tcp Server Started. Listen at:" 
@@ -234,7 +211,6 @@ public class TcpServer implements IServer {
 		public void run() {
 			while(true) {
 				try {
-					//logger.debug("ListenerThread.run() ----");
 					if(_serverSelector.select() != 0) {
 						Set<SelectionKey> keySet = _serverSelector.selectedKeys();
 						
@@ -276,7 +252,7 @@ public class TcpServer implements IServer {
 	 * @return true:acceppted false:not accepted for reaching max connection count
 	 */
 	protected AcceptResult handleAccept(SelectionKey key) {
-		if(_connecttingSocketCount.get() >= _tcpServerConfig.getConnectMaxCount()) {
+		if(_channelByteBufferPool.getBorrowedCount() >= _channelByteBufferPool.getMaxTotal()) {
 			return AcceptResult.NotAcceptedForReachingMaxConnection;
 		}
 		
@@ -285,7 +261,6 @@ public class TcpServer implements IServer {
 			ServerSocketChannel serverChannel = (ServerSocketChannel) key.channel();
 			//accept
 			socketChannel = serverChannel.accept();
-			
 		} catch(Throwable e) {
 			try {
 				key.cancel();
@@ -298,8 +273,12 @@ public class TcpServer implements IServer {
 
 		//accept successfully
 		if(socketChannel != null) {
+			ChannelByteBuffer buffer = null;
 			try {
-				//configure socket channel ----------------------------
+				buffer = _channelByteBufferPool.borrowObject();
+				
+				//logger.debug("accepted client:".concat(socketChannel.socket().getRemoteSocketAddress().toString()));
+				
 				socketChannel.configureBlocking(false);
 				socketChannel.socket().setSendBufferSize(_tcpServerConfig.getSocketSendBufferSize());
 				socketChannel.socket().setReceiveBufferSize(_tcpServerConfig.getSocketReceiveBufferSize());
@@ -307,53 +286,55 @@ public class TcpServer implements IServer {
 				int clientSelectorIndex = Math.abs(
 						_clientSelectorCount.getAndIncrement() % _readSelectors.length);
 				
-				//register socket channel ------------------------------
-				SessionObj sessionObj = new SessionObj(_sessionIdSeed.incrementAndGet()); 
-
-				/*
-				_writeSelectors[clientSelectorIndex].wakeup();
-				SelectionKey selectionKey = socketChannel.register(
-						_writeSelectors[clientSelectorIndex], 
-						SelectionKey.OP_WRITE, 
-						sessionObj);
-				*/
-				_writeSelector.wakeup();
-				SelectionKey selectionKey = socketChannel.register(
-						_writeSelector, 
-						SelectionKey.OP_WRITE, 
-						sessionObj);
-
+				//logger.debug("registerring client socketChannel");
 				_readSelectors[clientSelectorIndex].wakeup();
-				SelectionKey selectionKeyR = socketChannel.register(
+				SelectionKey selectionKey = socketChannel.register(
 						_readSelectors[clientSelectorIndex], 
 						SelectionKey.OP_READ 
 						//| SelectionKey.OP_WRITE
 						, 
-						selectionKey);
+						buffer);
+
+				_writeSelectors[clientSelectorIndex].wakeup();
+				SelectionKey selectionKeyW = socketChannel.register(
+						_writeSelectors[clientSelectorIndex], 
+						SelectionKey.OP_WRITE, 
+						buffer);
 				
-				/*
 				logger.info("accepted client:"
 						.concat(socketChannel.socket().getRemoteSocketAddress().toString())
 						.concat(" is registered to clientSelectors[")
 						.concat(String.valueOf(clientSelectorIndex))
 						.concat("]")
 						);
-				*/
 				
 				//notify event
-				ITcpEventHandler eventHandler = _eventHandlerFactory.createHandler((SessionObj) selectionKey.attachment());
-				eventHandler.didConnect(new SelectionKeyWrapper(selectionKey));
+				didConnect(selectionKey);
 				
 				return AcceptResult.Accepted;
+			} catch(NoSuchElementException e) {
+				logger.error("accept() failed. _channelByteBufferPool exhausted on reaching max connection count.", e);
+				return AcceptResult.NotAcceptedForReachingMaxConnection;
 			} catch (Throwable e) {
 				logger.error("accept() failed.", e);
-
-				clearSelectionKey(key);
+				try {
+					_channelByteBufferPool.returnObject(buffer);
+				} catch(Throwable e1) {
+					logger.error(null, e1);
+				}
+				//close accepted socket channel
+				closeSocketChannel(socketChannel);
+				logger.info("handleAccept() Close socketChannel for Error");
+				
+				try {
+					key.cancel();
+				} catch(Throwable e1) {
+					logger.error(null, e1);
+				}
 				
 				return AcceptResult.NotAcceptedForError;
 			}
 		} else {
-			logger.error("accept() key.channel() is null");
 			return AcceptResult.NotAcceptedForNoClientConnect;
 		}
 	}
@@ -369,8 +350,7 @@ public class TcpServer implements IServer {
 		public void run() {
 			while(true) {
 				try {
-					//logger.debug("ReadThread[" + _selectorIndex + "] >>>>>>>>>>>>>>");
-					
+					logger.debug("ReadThread[" + _selectorIndex + "] >>>>>>>>>>>>>>");
 					if(_readSelectors[_selectorIndex].select() != 0) {
 						Set<SelectionKey> keySet = _readSelectors[_selectorIndex].selectedKeys();
 						
@@ -393,94 +373,23 @@ public class TcpServer implements IServer {
 						keySet.clear();
 					}
 
-					//logger.debug("ReadThread[" + _selectorIndex + "] <<<<<<<<<<<<<");
+					logger.debug("ReadThread[" + _selectorIndex + "] <<<<<<<<<<<<<");
 				} catch(Throwable e) {
 					logger.error("IOThread error", e);
 				} finally {
-					//Read Key.select() will block until data arrive, so no need to sleep
+					/* Read Key.select() will block until data arrive, so no need to sleep
 					try {
 						Thread.sleep(SLEEP_PERIOD);
 					} catch(InterruptedException e) {
 						logger.info("IOThread InterruptedException -----");
 						break;
 					}
+					*/
 				}
 			}
 		}
 	}
-	
-	protected void handleRead(SelectionKey key) {
-		SocketChannel socketChannel = (SocketChannel) key.channel();
-		try {
-			if(!isConnected(socketChannel.socket())) {
-				clearSelectionKey(key);
-				//return false;
-				return;
-			} else {
-				final MessageList<PooledByteBuffer> messages = new MessageList<PooledByteBuffer>();
-				
-				int readLen;
-				PooledByteBuffer pooledBuffer;
-				while(true) {
-					pooledBuffer = _bufferPool.borrowObject();
-					
-					readLen = socketChannel.read(pooledBuffer.getByteBuffer());
-					if(readLen > 0) {
-						messages.add(pooledBuffer);
-					} else {
-						if(readLen < 0) {
-							//mostly it is -1, and means client has disconnected
-							clearSelectionKey(key);
-							
-							Iterator<PooledByteBuffer> iter = messages.iterator();
-							while(iter.hasNext()) {
-								(iter.next()).returnToPool();
-							}
-							messages.clear();
-						}
 
-						//return pooledBuffer
-						pooledBuffer.returnToPool();
-						break;
-					}
-				}
-				
-				if(messages.size() > 0) {
-					//fire event
-					final SelectionKeyWrapper selectionKey = new SelectionKeyWrapper((SelectionKey) key.attachment());
-					_eventHandlerThreadPool.execute(new Runnable() {
-						
-						@Override
-						public void run() {
-							try {
-								ITcpEventHandler eventHandler = _eventHandlerFactory.createHandler(selectionKey.getSelectionKeyAttach());
-								eventHandler.didReceivedMsg(selectionKey, messages);
-							} catch(Throwable e) {
-								logger.error(null, e);
-							} finally {
-								Iterator<PooledByteBuffer> iter = messages.iterator();
-								while(iter.hasNext()) {
-									(iter.next()).returnToPool();
-								}
-								messages.clear();
-							}
-						}
-					});
-				}
-				
-				return;
-			}
-		} catch(IOException e) {
-			clearSelectionKey(key);
-			//return false;
-		} catch(Throwable e) {
-			logger.error("handleRead()", e);
-			//return false;
-		}
-	}
-
-
-	/*
 	protected class WriteThread extends Thread {
 		private int _selectorIndex;
 		
@@ -519,17 +428,67 @@ public class TcpServer implements IServer {
 				} catch(Throwable e) {
 					logger.error("IOThread error", e);
 				} finally {
-//					try {
-//						Thread.sleep(SLEEP_PERIOD);
-//					} catch(InterruptedException e) {
-//						logger.info("IOThread InterruptedException -----");
-//						break;
-//					}
+					/*
+					try {
+						Thread.sleep(SLEEP_PERIOD);
+					} catch(InterruptedException e) {
+						logger.info("IOThread InterruptedException -----");
+						break;
+					}
+					*/
 				}
 			}
 		}
 	}
 	
+	protected void handleRead(SelectionKey key) {
+		SocketChannel socketChannel = (SocketChannel) key.channel();
+		try {
+			ChannelByteBuffer buffer = (ChannelByteBuffer)key.attachment();
+			
+			if(!isConnected(socketChannel.socket())) {
+				clearSelectionKey(key);
+				//return false;
+				return;
+			} else {
+				//if(buffer.tryLockReadBuffer())
+				if(!buffer.isLockedReadBuffer())
+				{
+					if(buffer.getReadBuffer().remaining() == 0) {
+						//return false;
+						return;
+					}
+					
+					int readLen;
+					readLen = socketChannel.read(buffer.getReadBuffer());
+							
+					if(readLen == -1) {
+						//client is disconnected
+						clearSelectionKey(key);
+						//logger.debug("readLen is -1");
+						//return false;
+						return;
+					}
+					
+					if(readLen > 0) {
+						//logger.debug("handleRead() readLen:" + readLen);
+						_workerDispatcher.addDidReadRequest(key);
+						//return true;
+						return;
+					}
+				}
+				
+				//return false;
+			}
+		} catch(IOException e) {
+			clearSelectionKey(key);
+			//return false;
+		} catch(Throwable e) {
+			logger.error("handleRead()", e);
+			//return false;
+		}
+	}
+
 	protected void handleWrite(SelectionKey key) {
 		SocketChannel socketChannel = (SocketChannel) key.channel();
 
@@ -561,7 +520,6 @@ public class TcpServer implements IServer {
 			//return false;
 		}
 	}
-	*/
 	
     protected static boolean isConnected(Socket socket) {
 		return socket != null && socket.isBound() && !socket.isClosed()
@@ -581,9 +539,72 @@ public class TcpServer implements IServer {
 	}
     
 	protected void clearSelectionKey(SelectionKey selectionKey) {
-		if(SocketChannelUtil.clearSelectionKey(selectionKey)) {
-			ITcpEventHandler eventHandler = _eventHandlerFactory.createHandler((SessionObj) selectionKey.attachment());
-			eventHandler.didDisconnect(new SelectionKeyWrapper(selectionKey));
+		try {
+			
+			if(selectionKey != null) {
+				try {
+					SocketChannel socketChannel = (SocketChannel) selectionKey.channel();
+					closeSocketChannel(socketChannel);
+					
+					if(selectionKey.attachment() != null) {
+						//return byte buffer to pool
+						_channelByteBufferPool.returnObject(
+								(ChannelByteBuffer) selectionKey.attachment());
+						selectionKey.attach(null);
+
+						//notify event
+						didDisconnect(selectionKey);
+						
+						logger.info("close socket:".concat(socketChannel.socket().getRemoteSocketAddress().toString()));
+					} else {
+						logger.info("close server socketChannel");
+					}
+				} finally {
+					selectionKey.cancel();
+				}
+			}
+		} catch(Exception e) {
+			logger.error("clearSelectionKey()", e);
+		}
+	}
+	
+	protected void didConnect(SelectionKey selectionKey) {
+	}
+
+	protected void didDisconnect(SelectionKey selectionKey) {
+	}
+	
+	
+	protected static void closeSocketChannel(SocketChannel socketChannel) {
+		try {
+			if(!socketChannel.socket().isInputShutdown()) {
+				socketChannel.socket().shutdownInput();
+			}
+		} catch(Exception e) {
+			logger.info(e);
+		}
+		
+		try {
+			if(!socketChannel.socket().isOutputShutdown()) {
+				socketChannel.socket().shutdownOutput();
+			}
+		} catch(Exception e) {
+			//mostly client disconnected
+			//logger.error(null, e);
+		}
+		
+		try {
+			if(!socketChannel.socket().isClosed()) {
+				socketChannel.socket().close();
+			}
+		} catch(Exception e) {
+			logger.error(null, e);
+		}
+
+		try {
+			socketChannel.close();
+		} catch(Exception e) {
+			logger.error(null, e);
 		}
 	}
 	
