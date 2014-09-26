@@ -3,7 +3,7 @@ package com.beef.easytcp.server.buffer;
 import org.apache.commons.pool2.impl.GenericObjectPool;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 
-import com.beef.easytcp.IPool;
+import com.beef.easytcp.base.IPool;
 
 public class ByteBufferPool implements IPool<PooledByteBuffer> {
 	

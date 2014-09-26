@@ -3,7 +3,7 @@ package com.beef.easytcp.client.pool;
 import org.apache.commons.pool2.impl.GenericObjectPool;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 
-import com.beef.easytcp.IPool;
+import com.beef.easytcp.base.IPool;
 import com.beef.easytcp.client.TcpClientConfig;
 
 public class SyncTcpClientPool implements IPool<PooledSyncTcpClient> {

@@ -1,7 +1,7 @@
 package com.beef.easytcp.client.pool;
 
-import com.beef.easytcp.IPool;
-import com.beef.easytcp.IPooledObject;
+import com.beef.easytcp.base.IPool;
+import com.beef.easytcp.base.IPooledObject;
 import com.beef.easytcp.client.SyncTcpClient;
 import com.beef.easytcp.client.TcpClientConfig;
 

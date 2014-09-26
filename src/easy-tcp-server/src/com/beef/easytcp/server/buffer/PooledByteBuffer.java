@@ -2,9 +2,9 @@ package com.beef.easytcp.server.buffer;
 
 import java.nio.ByteBuffer;
 
-import com.beef.easytcp.ByteBuff;
-import com.beef.easytcp.IPool;
-import com.beef.easytcp.IPooledObject;
+import com.beef.easytcp.base.ByteBuff;
+import com.beef.easytcp.base.IPool;
+import com.beef.easytcp.base.IPooledObject;
 
 public class PooledByteBuffer extends ByteBuff implements IPooledObject {
 	protected IPool<PooledByteBuffer> _backPool = null;

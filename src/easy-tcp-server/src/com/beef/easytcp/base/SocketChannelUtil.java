@@ -1,4 +1,4 @@
-package com.beef.easytcp;
+package com.beef.easytcp.base;
 
 import java.net.Socket;
 import java.nio.channels.SelectionKey;
@@ -14,13 +14,7 @@ public class SocketChannelUtil {
 		try {
 			if(selectionKey != null && selectionKey.isValid()) {
 				try {
-					SocketChannel socketChannel = (SocketChannel) selectionKey.channel();
-					if(selectionKey.attachment() != null) {
-						selectionKey.attach(null);
-					}
-					
-					closeSocketChannel(socketChannel);
-					
+					closeSocketChannel((SocketChannel) selectionKey.channel());
 				} finally {
 					try {
 						selectionKey.cancel();

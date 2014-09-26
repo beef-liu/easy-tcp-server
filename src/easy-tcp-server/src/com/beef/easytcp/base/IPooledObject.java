@@ -1,4 +1,4 @@
-package com.beef.easytcp;
+package com.beef.easytcp.base;
 
 public interface IPooledObject {
 	
