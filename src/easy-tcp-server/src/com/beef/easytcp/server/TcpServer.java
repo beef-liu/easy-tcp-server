@@ -176,11 +176,13 @@ public class TcpServer implements IServer {
 		{
 			//init socket -----------------------------------------------------------------
 			_serverSocketChannel = ServerSocketChannel.open();
+
+			_serverSocketChannel.socket().setSoTimeout(_tcpServerConfig.getSoTimeout());
+
 			_serverSocketChannel.configureBlocking(false);
 			
 			_serverSocketChannel.socket().setReceiveBufferSize(_tcpServerConfig.getSocketReceiveBufferSize());
 			//SO_TIMEOUT functional in nonblocking mode? 
-			_serverSocketChannel.socket().setSoTimeout(_tcpServerConfig.getConnectTimeout());
 			_serverSocketChannel.socket().bind(
 					new InetSocketAddress(_tcpServerConfig.getHost(), _tcpServerConfig.getPort()), 
 					_tcpServerConfig.getConnectWaitCount());
@@ -285,6 +287,7 @@ public class TcpServer implements IServer {
 	 */
 	protected AcceptResult handleAccept(SelectionKey key) {
 		if(_connecttingSocketCount.get() >= _tcpServerConfig.getConnectMaxCount()) {
+			logger.error("Connection achieve max, not accept more");
 			return AcceptResult.NotAcceptedForReachingMaxConnection;
 		}
 		

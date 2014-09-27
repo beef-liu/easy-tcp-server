@@ -29,9 +29,9 @@ public class TestTcpServer {
 
 	private final static Logger logger = Logger.getLogger(TestTcpServer.class);
 	
-	private final static int SocketReceiveBufferSize = 1024 * 4;
+	private final static int SocketReceiveBufferSize = 1024 * 16;
 
-	//private SyncTcpClientPool _tcpClientPool;
+	private SyncTcpClientPool _tcpClientPool;
 	
 	
 	public static void main(String[] args) {
@@ -53,12 +53,13 @@ public class TestTcpServer {
 		try {
 			//int maxConnection = (int) (1024 * 4);
 			//int maxTcpClientPool = (int) (1024 * 4);
-			int ioThreadCount = 32;
+			int ioThreadCount = 1024;
 			TcpServerConfig serverConfig = new TcpServerConfig();
 			serverConfig.setHost("127.0.0.1");
 			serverConfig.setPort(6381);
 			serverConfig.setConnectMaxCount(maxConnection);
-			serverConfig.setConnectTimeout(100);
+			serverConfig.setConnectTimeout(1000);
+			serverConfig.setSoTimeout(1000);
 			serverConfig.setConnectWaitCount(maxConnection);
 			serverConfig.setSocketIOThreadCount(ioThreadCount);
 			serverConfig.setSocketReceiveBufferSize(SocketReceiveBufferSize);
@@ -71,21 +72,22 @@ public class TestTcpServer {
 			tcpClientConfig.setHost("127.0.0.1");
 			tcpClientConfig.setPort(6379);
 			tcpClientConfig.setConnectTimeoutMS(500);
-			tcpClientConfig.setSoTimeoutMS(100);
+			tcpClientConfig.setSoTimeoutMS(1000);
 			tcpClientConfig.setReceiveBufferSize(SocketReceiveBufferSize);
 			tcpClientConfig.setSendBufferSize(SocketReceiveBufferSize);
 
-			//tcp client pool
+			//tcp client
 			int maxTcpClientPool = maxConnection;
 			GenericObjectPoolConfig tcpClientPoolConfig = new GenericObjectPoolConfig();
 			tcpClientPoolConfig.setMaxTotal(maxTcpClientPool);
 			tcpClientPoolConfig.setMaxIdle(maxTcpClientPool);
 			tcpClientPoolConfig.setMaxWaitMillis(100);
 
-			//_tcpClientPool = new SyncTcpClientPool(tcpClientPoolConfig, tcpClientConfig);
+			_tcpClientPool = new SyncTcpClientPool(tcpClientPoolConfig, tcpClientConfig);
 			//final TcpServerEventHandlerPool handlerPool = new TcpServerEventHandlerPool();
 			
-			boolean isSyncInvokeDidReceivedMsg = false; 
+			boolean isSyncInvokeDidReceivedMsg = true;
+			/*
 			TcpServer server = new TcpServer(
 					serverConfig, isAllocateDirect, 
 					new ITcpEventHandlerFactory() {
@@ -94,7 +96,24 @@ public class TestTcpServer {
 						public AbstractTcpEventHandler createHandler(int sessionId,
 								//SelectionKey readKey, 
 								SelectionKey writeKey) {
-							return (new TcpServerEventHandler(
+							return (new TcpServerEventHandlerByAsyncClient(
+									tcpClientConfig, sessionId, 
+									//readKey, 
+									writeKey));
+						}
+					},
+					isSyncInvokeDidReceivedMsg
+					);
+			*/
+			TcpServer server = new TcpServer(
+					serverConfig, isAllocateDirect, 
+					new ITcpEventHandlerFactory() {
+						
+						@Override
+						public AbstractTcpEventHandler createHandler(int sessionId,
+								//SelectionKey readKey, 
+								SelectionKey writeKey) {
+							return (new TcpServerEventHandlerBySyncClient(
 									tcpClientConfig, sessionId, 
 									//readKey, 
 									writeKey));
@@ -116,10 +135,99 @@ public class TestTcpServer {
 		}
 	}
 	
-	private class TcpServerEventHandler extends AbstractTcpEventHandler {
+	private class TcpServerEventHandlerBySyncClient extends AbstractTcpEventHandler {
+
+		//private SyncTcpClient tcpClient;
+		private PooledSyncTcpClient tcpClient;
+		
+		public TcpServerEventHandlerBySyncClient(				
+				TcpClientConfig tcpConfig,
+				int sessionId,
+				//SelectionKey readKey,
+				SelectionKey writeKey) {
+			super(sessionId, 
+					//readKey, 
+					writeKey);
+			
+			//tcpClient = new SyncTcpClient(tcpConfig);
+			tcpClient = _tcpClientPool.borrowObject();
+			
+//			try {
+//				tcpClient.connect();
+//			} catch(Throwable e) {
+//				e.printStackTrace();
+//			}
+		}
+		
+		@Override
+		public void didConnect() {
+			// TODO Auto-generated method stub
+			
+		}
+
+		@Override
+		public void didDisconnect() {
+			/*
+			try {
+				tcpClient.disconnect();
+			} catch(Throwable e) {
+				e.printStackTrace();
+			}
+			*/
+			
+			if(tcpClient != null) {
+				try {
+					tcpClient.returnToPool();
+				} catch(Throwable e) {
+					logger.error(null, e);
+				}
+			}
+			
+		}
+
+		@Override
+		public void didReceivedMsg(MessageList<? extends ByteBuff> messages) {
+			Iterator<? extends ByteBuff> iter = messages.iterator();
+			ByteBuff msg;
+			while(iter.hasNext()) {
+				msg = iter.next();
+
+				didReceivedMsg(msg);
+			}
+		}
+
+		@Override
+		public void didReceivedMsg(ByteBuff msg) {
+			try {
+				msg.getByteBuffer().flip();
+				tcpClient.send(msg.getByteBuffer().array(), 
+						msg.getByteBuffer().position(), msg.getByteBuffer().remaining());
+				
+				
+				try {
+					msg.getByteBuffer().clear();
+					int receiveLen = tcpClient.receive(
+							msg.getByteBuffer().array(), 0, msg.getByteBuffer().limit());
+					if(receiveLen > 0) {
+						msg.getByteBuffer().position(0);
+						msg.getByteBuffer().limit(receiveLen);
+						writeMessage(msg.getByteBuffer());
+					}
+				} catch(SocketTimeoutException e) {
+					logger.error("Tcp Client receive timeout---");
+				}
+				
+			} catch(Throwable e) {
+				logger.error(null, e);
+			}
+		}
+		
+	}
+	
+	private class TcpServerEventHandlerByAsyncClient extends AbstractTcpEventHandler {
 		private AsyncTcpClient tcpClient;
 		
-		public TcpServerEventHandler(
+		public TcpServerEventHandlerByAsyncClient(
 				TcpClientConfig tcpClientConfig,
 				int sessionId,
 				//SelectionKey readKey,
@@ -232,7 +340,7 @@ public class TestTcpServer {
 			public void didReceivedMsg(ByteBuff msg) {
 				try {
 					msg.getByteBuffer().flip();
-					TcpServerEventHandler.this.writeMessage(msg.getByteBuffer());
+					TcpServerEventHandlerByAsyncClient.this.writeMessage(msg.getByteBuffer());
 				} catch(Throwable e) {
 					logger.error(null, e);
 				} 

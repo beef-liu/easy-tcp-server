@@ -43,7 +43,7 @@ public class AsyncTcpClient implements ITcpClient {
 	protected volatile boolean _connected = false;
 	
 	protected ITcpEventHandlerFactory _eventHandlerFactory;
-	protected AbstractTcpEventHandler _eventHandler;
+	protected volatile AbstractTcpEventHandler _eventHandler;
 	
 	protected ByteBuff _byteBuff;
 	
@@ -66,30 +66,24 @@ public class AsyncTcpClient implements ITcpClient {
 		_byteBuff = new ByteBuff(false, _config.getReceiveBufferSize());
 	}
 	
-	public void setEventHandler(AbstractTcpEventHandler eventHandler) {
-		if(_eventHandler != eventHandler) {
-			_eventHandler = null;
-			_eventHandler = eventHandler;
-		}
+	public AbstractTcpEventHandler getEventHandler() {
+		return _eventHandler;
 	}
 	
 	@Override
 	public void connect() throws IOException {
 		_connected = false;
-		
-		//create selector
-		_readSelector = Selector.open();
-		_writeSelector = Selector.open();
-		
+
 		//create socket
 		_socketChannel = SocketChannel.open();
+		_socketChannel.socket().setSoTimeout(_config.getSoTimeoutMS());
+
 		_socketChannel.configureBlocking(false);
 		
 		_socketChannel.socket().setReceiveBufferSize(_config.getReceiveBufferSize());
 		_socketChannel.socket().setSendBufferSize(_config.getSendBufferSize());
-		_socketChannel.socket().setSoTimeout(_config.getSoTimeoutMS());
 		
-		_socketChannel.socket().setReuseAddress(_config.isReuseAddress());
+		//_socketChannel.socket().setReuseAddress(_config.isReuseAddress());
 		_socketChannel.socket().setKeepAlive(_config.isKeepAlive());
 		_socketChannel.socket().setTcpNoDelay(_config.isTcpNoDelay());
 		
@@ -102,7 +96,12 @@ public class AsyncTcpClient implements ITcpClient {
 		
 		_ioThreadPool = Executors.newFixedThreadPool(2);
 		_ioThreadPool.execute(new ConnectThread());
+
+		//create io selector ----------------------
+		_readSelector = Selector.open();
+		_writeSelector = Selector.open();
 		
+		//connect ------------------------------
 		_connectBeginTime = System.currentTimeMillis();
 		boolean connectReady = _socketChannel.connect(
 				new InetSocketAddress(_config.getHost(), _config.getPort()));
@@ -116,9 +115,9 @@ public class AsyncTcpClient implements ITcpClient {
 		public void run() {
 			while(true) {
 				try {
+					boolean finishConnect = false;
 					if(_connectSelector.select(_config.getConnectTimeoutMS()) != 0) {
 						Set<SelectionKey> keySet = _connectSelector.selectedKeys();
-						
 						for(SelectionKey key : keySet) {
 							try {
 								if(!key.isValid()) {
@@ -127,6 +126,7 @@ public class AsyncTcpClient implements ITcpClient {
 								
 								if(key.isConnectable()) {
 									finishConnect();
+									finishConnect = true;
 								}
 
 							} catch(CancelledKeyException e) {
@@ -137,14 +137,21 @@ public class AsyncTcpClient implements ITcpClient {
 						}
 						
 						keySet.clear();
-					} 
+					}
 					
 					if(_socketChannel.isConnectionPending()) {
 						if((System.currentTimeMillis() - _connectBeginTime) >= _config.getConnectTimeoutMS()) {
 							logInfo("Connecting time out");
+							disconnect();
+							break;
 						}
 					}
+					
+					if(finishConnect) {
+						break;
+					}
 				} catch(ClosedSelectorException e) {
+					logError(e);
 					break;
 				} catch(Throwable e) {
 					logError(e);
@@ -160,6 +167,46 @@ public class AsyncTcpClient implements ITcpClient {
 		}
 	}
 
+	protected void finishConnect() {
+		try {
+			final boolean connected = _socketChannel.finishConnect();
+			logInfo("AsyncTcpClient connected");
+			
+			if(connected) {
+				//io selectionKeys ------------------------------
+				_readSelector.wakeup();
+				_readKey = _socketChannel.register(
+						_readSelector, 
+						SelectionKey.OP_READ 
+						);
+				
+				_writeSelector.wakeup();
+				_writeKey = _socketChannel.register(
+						_writeSelector,  
+						SelectionKey.OP_WRITE
+						);
+				
+				_ioThreadPool.execute(new ReadThread());
+				
+
+				//event handler -------------------------
+				_eventHandler = _eventHandlerFactory.createHandler(
+						_sessionId, 
+						//_readKey, 
+						_writeKey);
+				//_workSelectionKey.attach(_eventHandler);
+				
+				_connected = true;
+				_eventHandler.didConnect();
+			} else {
+				_connected = false;
+			}
+		} catch(Throwable e) {
+			logError(e);
+			disconnect();
+		}
+	}
+	
 	protected class ReadThread implements Runnable {
 		@Override
 		public void run() {
@@ -190,6 +237,14 @@ public class AsyncTcpClient implements ITcpClient {
 					break;
 				} catch(Throwable e) {
 					logError(e);
+				} finally {
+					//Read Key.select() will block until data arrive, so no need to sleep
+					try {
+						Thread.sleep(SLEEP_PERIOD);
+					} catch(InterruptedException e) {
+						logInfo("IOThread InterruptedException -----");
+						break;
+					}
 				}
 			}
 		}
@@ -197,8 +252,10 @@ public class AsyncTcpClient implements ITcpClient {
 		protected void handleRead(SelectionKey key) {
 			SocketChannel socketChannel = (SocketChannel) key.channel();
 			try {
-				if(!isConnected()) {
-					clearSelectionKey(key);
+				if(!isRealConnected()) {
+					logInfo("handleRead() not connected");
+					//clearSelectionKey(key);
+					disconnect();
 					//return false;
 					return;
 				} else {
@@ -212,13 +269,17 @@ public class AsyncTcpClient implements ITcpClient {
 						}
 					} else if(readLen < 0) {
 						//mostly it is -1, and means server has disconnected
-						clearSelectionKey(key);
+						//clearSelectionKey(key);
+						logInfo("handleRead() remote peer closed");
+						disconnect();
 					}
 					
 					return;
 				}
 			} catch(IOException e) {
-				clearSelectionKey(key);
+				logError(e);
+				//clearSelectionKey(key);
+				disconnect();
 				//return false;
 			} catch(Throwable e) {
 				logError(e);
@@ -251,39 +312,6 @@ public class AsyncTcpClient implements ITcpClient {
 //	protected void handleWrite(SelectionKey key) {
 //	}
 	
-	protected void finishConnect() {
-		try {
-			_connected = _socketChannel.finishConnect();
-			
-			if(_connected) {
-				_readSelector.wakeup();
-				_readKey = _socketChannel.register(
-						_readSelector, 
-						SelectionKey.OP_READ 
-						);
-				
-				_writeSelector.wakeup();
-				_writeKey = _socketChannel.register(
-						_writeSelector,  
-						SelectionKey.OP_WRITE
-						);
-				
-				_eventHandler = _eventHandlerFactory.createHandler(
-						_sessionId, 
-						//_readKey, 
-						_writeKey);
-				//_workSelectionKey.attach(_eventHandler);
-				
-				_eventHandler.didConnect();
-				
-				_ioThreadPool.execute(new ReadThread());
-			}
-		} catch(Throwable e) {
-			disconnect();
-			logError(e);
-		}
-	}
-	
 
 	@Override
 	public void disconnect() {
@@ -311,13 +339,18 @@ public class AsyncTcpClient implements ITcpClient {
 
 	@Override
 	public boolean isConnected() {
+		return isRealConnected()
+				&& _connected
+				;
+	}
+	
+	protected boolean isRealConnected() {
 		return _socketChannel.socket() != null 
 				&& _socketChannel.socket().isBound() 
 				&& !_socketChannel.socket().isClosed()
 				&& _socketChannel.socket().isConnected() 
 				&& !_socketChannel.socket().isInputShutdown()
 				&& !_socketChannel.socket().isOutputShutdown()
-				&& _connected
 				;
 	}
 

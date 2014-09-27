@@ -53,8 +53,9 @@ public abstract class AbstractTcpEventHandler {
 	public int writeMessage(ByteBuffer msg) throws TcpException {
 		try {
 			_writeKey.selector().select(100);
-		} catch (IOException e) {
+		} catch (Throwable e) {
 			throw new TcpException(e);
+			//return 0;
 		}
 		
 		if(!_writeKey.isValid()) {
@@ -85,6 +86,8 @@ public abstract class AbstractTcpEventHandler {
 		} catch (IOException e) {
 			throw new TcpException(e);
 		}
+		
 	}
+	
 	
 }

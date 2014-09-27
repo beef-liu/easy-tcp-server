@@ -10,6 +10,8 @@ public class TcpServerConfig {
 	private int connectTimeout = 5000;
 	
 	private int connectWaitCount = 64;
+
+	private int _soTimeout = 100;
 	
 	private int socketIOThreadCount = 4;
 		
@@ -81,5 +83,14 @@ public class TcpServerConfig {
 	public void setSocketIOThreadCount(int socketIOThreadCount) {
 		this.socketIOThreadCount = socketIOThreadCount;
 	}
+
+	public int getSoTimeout() {
+		return _soTimeout;
+	}
+
+	public void setSoTimeout(int soTimeout) {
+		_soTimeout = soTimeout;
+	}
+
 
 }
