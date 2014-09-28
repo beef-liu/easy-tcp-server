@@ -1,4 +1,4 @@
-package com.beef.easytcp.server.buffer;
+package com.beef.easytcp.base.buffer;
 
 import java.nio.ByteBuffer;
 

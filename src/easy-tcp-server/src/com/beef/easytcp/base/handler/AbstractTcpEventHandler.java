@@ -14,6 +14,7 @@ public abstract class AbstractTcpEventHandler {
 	protected int _sessionId;
 	//protected SelectionKey _readKey;
 	protected SelectionKey _writeKey;
+	protected Object _lockForWrite = new Object();
 	
 	public AbstractTcpEventHandler(int sessionId,
 			//SelectionKey readKey,
@@ -51,10 +52,21 @@ public abstract class AbstractTcpEventHandler {
 	 * @throws TcpException
 	 */
 	public int writeMessage(ByteBuffer msg) throws TcpException {
+//		if(_writeKey == null) {
+//			//already destroyed
+//			return 0;
+//		}
+//		
+//		if(_writeKey.selector() == null) {
+//			//already destroyed
+//			return 0;
+//		}
+		
 		try {
 			_writeKey.selector().select(100);
 		} catch (Throwable e) {
-			throw new TcpException(e);
+			//mostly destroyed by cause of "Connection reset by peer"
+			throw new TcpException("mostly destroyed by cause of \"Connection reset by peer\"\r\n", e);
 			//return 0;
 		}
 		
@@ -73,7 +85,16 @@ public abstract class AbstractTcpEventHandler {
 					
 					return 0;
 				} else {
-					return socketChannel.write(msg);
+					synchronized (_lockForWrite) {
+						if(msg.array()[msg.position()] == '\r') {
+							System.out.println("writeMessage() reply starts with '\\r'. position:" + msg.position());
+						}
+						int totalWriteLen = msg.remaining();
+						while(msg.hasRemaining()) {
+							socketChannel.write(msg);
+						}
+						return totalWriteLen;
+					}
 				}
 			} else {
 				return 0;

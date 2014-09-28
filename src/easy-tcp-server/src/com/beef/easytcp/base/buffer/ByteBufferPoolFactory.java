@@ -1,4 +1,4 @@
-package com.beef.easytcp.server.buffer;
+package com.beef.easytcp.base.buffer;
 
 import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.PooledObjectFactory;
@@ -17,7 +17,8 @@ public class ByteBufferPoolFactory implements PooledObjectFactory<PooledByteBuff
 	public void activateObject(PooledObject<PooledByteBuffer> obj)
 			throws Exception {
 		//System.out.println("activateObject");
-		obj.getObject().getByteBuffer().clear();
+		//clear() should be done by the one who borrow
+		//obj.getObject().getByteBuffer().clear();
 	}
 
 	@Override
@@ -29,7 +30,7 @@ public class ByteBufferPoolFactory implements PooledObjectFactory<PooledByteBuff
 
 	@Override
 	public PooledObject<PooledByteBuffer> makeObject() throws Exception {
-		PooledByteBuffer buffer = new PooledByteBuffer(_isAllocateDirect, _bufferByteSize);
+		final PooledByteBuffer buffer = new PooledByteBuffer(_isAllocateDirect, _bufferByteSize);
 		return new DefaultPooledObject<PooledByteBuffer>(buffer);
 	}
 

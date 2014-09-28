@@ -23,7 +23,7 @@ public class SyncTcpClientPool implements IPool<PooledSyncTcpClient> {
 	@Override
 	public PooledSyncTcpClient borrowObject() {
 		try {
-			PooledSyncTcpClient obj = _backPool.borrowObject();
+			final PooledSyncTcpClient obj = _backPool.borrowObject();
 			obj.setPoolReference(this);
 			
 			return obj;

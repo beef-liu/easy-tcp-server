@@ -1,4 +1,4 @@
-package com.beef.easytcp.server.buffer;
+package com.beef.easytcp.base.buffer;
 
 import org.apache.commons.pool2.impl.GenericObjectPool;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
@@ -26,7 +26,7 @@ public class ByteBufferPool implements IPool<PooledByteBuffer> {
 	@Override
 	public PooledByteBuffer borrowObject() {
 		try {
-			PooledByteBuffer obj = _backPool.borrowObject();
+			final PooledByteBuffer obj = _backPool.borrowObject();
 			obj.setPoolReference(this);
 			
 			//System.out.println("borrowObject----------");
@@ -36,5 +36,8 @@ public class ByteBufferPool implements IPool<PooledByteBuffer> {
 		}
 	}
 	
+	public void close() {
+		_backPool.close();
+	}
 
 }

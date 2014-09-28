@@ -46,6 +46,9 @@ public class ByteBufferTest {
 			
 			int writeCnt = writeChannel.write(byteBuff);
 			outputByteBufferStatus("after write " + writeCnt + " byte from ", byteBuff);
+			
+			byteBuff.clear();
+			outputByteBufferStatus("after clear", byteBuff);
 		} catch(Throwable e) {
 			e.printStackTrace();
 		}

@@ -1,4 +1,4 @@
-package com.beef.easytcp.server.config;
+package com.beef.easytcp.server;
 
 public class TcpServerConfig {
 	private String host = "0.0.0.0";

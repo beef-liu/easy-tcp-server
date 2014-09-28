@@ -16,6 +16,8 @@ public class SyncTcpClientPoolFactory implements PooledObjectFactory<PooledSyncT
 	@Override
 	public void activateObject(PooledObject<PooledSyncTcpClient> obj)
 			throws Exception {
+		final PooledSyncTcpClient tcpClient = obj.getObject();
+		tcpClient.connect();
 	}
 
 	@Override
@@ -26,7 +28,7 @@ public class SyncTcpClientPoolFactory implements PooledObjectFactory<PooledSyncT
 
 	@Override
 	public PooledObject<PooledSyncTcpClient> makeObject() throws Exception {
-		PooledSyncTcpClient tcpClient = new PooledSyncTcpClient(_tcpConfig);
+		final PooledSyncTcpClient tcpClient = new PooledSyncTcpClient(_tcpConfig);
 		return new DefaultPooledObject<PooledSyncTcpClient>(tcpClient);
 	}
 

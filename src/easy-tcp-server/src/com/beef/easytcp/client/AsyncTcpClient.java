@@ -16,13 +16,13 @@ import org.apache.log4j.pattern.LogEvent;
 
 import com.beef.easytcp.base.ByteBuff;
 import com.beef.easytcp.base.SocketChannelUtil;
+import com.beef.easytcp.base.buffer.PooledByteBuffer;
 import com.beef.easytcp.base.handler.AbstractTcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
 import com.beef.easytcp.base.handler.MessageList;
 import com.beef.easytcp.base.handler.SelectionKeyWrapper;
 import com.beef.easytcp.base.handler.SessionObj;
 import com.beef.easytcp.server.TcpException;
-import com.beef.easytcp.server.buffer.PooledByteBuffer;
 
 public class AsyncTcpClient implements ITcpClient {
 	protected final static long SLEEP_PERIOD = 1;

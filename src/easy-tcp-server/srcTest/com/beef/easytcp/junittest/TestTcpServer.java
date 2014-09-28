@@ -11,6 +11,7 @@ import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
 
 import com.beef.easytcp.base.ByteBuff;
+import com.beef.easytcp.base.buffer.PooledByteBuffer;
 import com.beef.easytcp.base.handler.AbstractTcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
 import com.beef.easytcp.base.handler.MessageList;
@@ -22,38 +23,73 @@ import com.beef.easytcp.client.TcpClientConfig;
 import com.beef.easytcp.client.pool.PooledSyncTcpClient;
 import com.beef.easytcp.client.pool.SyncTcpClientPool;
 import com.beef.easytcp.server.TcpServer;
-import com.beef.easytcp.server.buffer.PooledByteBuffer;
-import com.beef.easytcp.server.config.TcpServerConfig;
+import com.beef.easytcp.server.TcpServerConfig;
 
+/**
+ * This class is made to test performance in different thread model.
+ * It's a simple proxy and I use redis-benchmark to test performance, just because it's easy to test and evaluated by comparing with redis-server.
+ * 
+ * @author XingGu Liu
+ *
+ */
 public class TestTcpServer {
 
 	private final static Logger logger = Logger.getLogger(TestTcpServer.class);
 	
-	private final static int SocketReceiveBufferSize = 1024 * 16;
+	private final static int SocketReceiveBufferSize = 1024 * 64;
 
 	private SyncTcpClientPool _tcpClientPool;
 	
-	
 	public static void main(String[] args) {
-		int maxConnection = 1024;
+		int maxConnection = 10000;
+		int ioThreadCount = 4;
+		int workThreadCount = 2048;
+		boolean isSyncInvokeDidReceivedMsg = false;
+		String hostRedirectTo = "127.0.0.1";
+		int portRedirectTo = 6379;
+		
 		if(args.length > 0) {
 			try {
-				maxConnection = Integer.parseInt(args[0]);
+				int i = 0;
+				maxConnection = Integer.parseInt(args[i++]);
+				ioThreadCount = Integer.parseInt(args[i++]);
+				workThreadCount = Integer.parseInt(args[i++]);
+				
+				if(args[i++].equals("true")) {
+					isSyncInvokeDidReceivedMsg = true;
+				} else {
+					isSyncInvokeDidReceivedMsg = false;
+				}
+				
+				hostRedirectTo = args[i++];
+				portRedirectTo = Integer.parseInt(args[i++]);
 			} catch(Throwable e) {
 				e.printStackTrace();
 			}
 		}
-		System.out.println("MaxThread:" + maxConnection + "------------------------------");
+		System.out.println("MaxThread:" + maxConnection
+				+ " ioThreadCount:" + ioThreadCount
+				+ " workThreadCount:" + workThreadCount
+				+ " isSyncInvokeDidReceivedMsg:" + isSyncInvokeDidReceivedMsg
+				+ " hostRedirectTo:" + hostRedirectTo
+				+ " portRedirectTo:" + portRedirectTo 
+				+ "------------------------------");
 		
 		TestTcpServer test = new TestTcpServer();
-		test.startServer(maxConnection);
+		test.startServer(
+				maxConnection, ioThreadCount, workThreadCount, 
+				isSyncInvokeDidReceivedMsg,
+				hostRedirectTo, portRedirectTo);
 	}
 	
-	public void startServer(int maxConnection) {
+	public void startServer(
+			int maxConnection, int ioThreadCount, int workThreadCount, 
+			boolean isSyncInvokeDidReceivedMsg,
+			String hostRedirectTo, int portRedirectTo) {
 		try {
 			//int maxConnection = (int) (1024 * 4);
 			//int maxTcpClientPool = (int) (1024 * 4);
-			int ioThreadCount = 1024;
+			
 			TcpServerConfig serverConfig = new TcpServerConfig();
 			serverConfig.setHost("127.0.0.1");
 			serverConfig.setPort(6381);
@@ -69,15 +105,15 @@ public class TestTcpServer {
 			
 			//Tcp Client -------------------------
 			final TcpClientConfig tcpClientConfig = new TcpClientConfig();
-			tcpClientConfig.setHost("127.0.0.1");
-			tcpClientConfig.setPort(6379);
+			tcpClientConfig.setHost(hostRedirectTo);
+			tcpClientConfig.setPort(portRedirectTo);
 			tcpClientConfig.setConnectTimeoutMS(500);
 			tcpClientConfig.setSoTimeoutMS(1000);
 			tcpClientConfig.setReceiveBufferSize(SocketReceiveBufferSize);
 			tcpClientConfig.setSendBufferSize(SocketReceiveBufferSize);
 
 			//tcp client
-			int maxTcpClientPool = maxConnection;
+			int maxTcpClientPool = workThreadCount;
 			GenericObjectPoolConfig tcpClientPoolConfig = new GenericObjectPoolConfig();
 			tcpClientPoolConfig.setMaxTotal(maxTcpClientPool);
 			tcpClientPoolConfig.setMaxIdle(maxTcpClientPool);
@@ -86,7 +122,6 @@ public class TestTcpServer {
 			_tcpClientPool = new SyncTcpClientPool(tcpClientPoolConfig, tcpClientConfig);
 			//final TcpServerEventHandlerPool handlerPool = new TcpServerEventHandlerPool();
 			
-			boolean isSyncInvokeDidReceivedMsg = true;
 			/*
 			TcpServer server = new TcpServer(
 					serverConfig, isAllocateDirect, 
@@ -209,6 +244,9 @@ public class TestTcpServer {
 					int receiveLen = tcpClient.receive(
 							msg.getByteBuffer().array(), 0, msg.getByteBuffer().limit());
 					if(receiveLen > 0) {
+						if(msg.getByteBuffer().array()[0] == '\r') {
+							logger.error("didReceivedMsg() reply starts with '\\r'");
+						}
 						msg.getByteBuffer().position(0);
 						msg.getByteBuffer().limit(receiveLen);
 						writeMessage(msg.getByteBuffer());

@@ -8,9 +8,9 @@ import java.util.List;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.junit.Test;
 
-import com.beef.easytcp.server.buffer.ByteBufferPool;
-import com.beef.easytcp.server.buffer.ByteBufferPoolFactory;
-import com.beef.easytcp.server.buffer.PooledByteBuffer;
+import com.beef.easytcp.base.buffer.ByteBufferPool;
+import com.beef.easytcp.base.buffer.ByteBufferPoolFactory;
+import com.beef.easytcp.base.buffer.PooledByteBuffer;
 
 public class ByteBufferPoolTest {
 

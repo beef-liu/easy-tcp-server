@@ -18,13 +18,12 @@ import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
 
 import com.beef.easytcp.base.SocketChannelUtil;
+import com.beef.easytcp.base.buffer.ByteBufferPool;
+import com.beef.easytcp.base.buffer.ByteBufferPoolFactory;
+import com.beef.easytcp.base.buffer.PooledByteBuffer;
 import com.beef.easytcp.base.handler.AbstractTcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
 import com.beef.easytcp.base.handler.MessageList;
-import com.beef.easytcp.server.buffer.ByteBufferPool;
-import com.beef.easytcp.server.buffer.ByteBufferPoolFactory;
-import com.beef.easytcp.server.buffer.PooledByteBuffer;
-import com.beef.easytcp.server.config.TcpServerConfig;
 
 /**
  * The work flow (Suppose that there is 4 CPU core):
@@ -112,6 +111,12 @@ public class TcpServer implements IServer {
 
 		try {
 			_serverThreadPool.shutdownNow();
+		} catch(Throwable e) {
+			logger.error("shutdown()", e);
+		}
+		
+		try {
+			_bufferPool.close();
 		} catch(Throwable e) {
 			logger.error("shutdown()", e);
 		}
@@ -435,31 +440,49 @@ public class TcpServer implements IServer {
 				return;
 			} else {
 				final MessageList<PooledByteBuffer> messages = new MessageList<PooledByteBuffer>();
-				
+
 				int readLen;
 				PooledByteBuffer pooledBuffer;
-				while(true) {
-					pooledBuffer = _bufferPool.borrowObject();
-					
-					readLen = socketChannel.read(pooledBuffer.getByteBuffer());
-					if(readLen > 0) {
-						messages.add(pooledBuffer);
-					} else {
-						if(readLen < 0) {
-							//mostly it is -1, and means client has disconnected
-							clearSelectionKey(key);
-							
-							Iterator<PooledByteBuffer> iter = messages.iterator();
-							while(iter.hasNext()) {
-								(iter.next()).returnToPool();
-							}
-							messages.clear();
+				
+				try {
+					while(true) {
+						pooledBuffer = _bufferPool.borrowObject();
+						
+						try {
+							pooledBuffer.getByteBuffer().clear();
+							readLen = socketChannel.read(pooledBuffer.getByteBuffer());
+						} catch(Throwable e) {
+							pooledBuffer.returnToPool();
+							throw e;
 						}
+						
+						if(readLen > 0) {
+							messages.add(pooledBuffer);
+						} else {
+							if(readLen < 0) {
+								//mostly it is -1, and means client has disconnected
+								clearSelectionKey(key);
+								
+								Iterator<PooledByteBuffer> iter = messages.iterator();
+								while(iter.hasNext()) {
+									(iter.next()).returnToPool();
+								}
+								messages.clear();
+							}
 
-						//return pooledBuffer
-						pooledBuffer.returnToPool();
-						break;
+							//return pooledBuffer
+							pooledBuffer.returnToPool();
+							break;
+						}
 					}
+				} catch(Throwable e) {
+					Iterator<PooledByteBuffer> iter = messages.iterator();
+					while(iter.hasNext()) {
+						(iter.next()).returnToPool();
+					}
+					messages.clear();
+					
+					throw e;
 				}
 				
 				if(messages.size() > 0) {
@@ -476,7 +499,7 @@ public class TcpServer implements IServer {
 							while(iter.hasNext()) {
 								(iter.next()).returnToPool();
 							}
-							messages.clear();
+							//messages.clear();
 						}
 					} else {
 						_eventHandlerThreadPool.execute(new Runnable() {
@@ -492,7 +515,7 @@ public class TcpServer implements IServer {
 									while(iter.hasNext()) {
 										(iter.next()).returnToPool();
 									}
-									messages.clear();
+									//messages.clear();
 								}
 							}
 						});
@@ -502,7 +525,8 @@ public class TcpServer implements IServer {
 				return;
 			}
 		} catch(IOException e) {
-			logger.error(null, e);
+			//mostly "Connection reset by peer"
+			logger.error("handleRead() ".concat(e.getMessage()));
 			clearSelectionKey(key);
 			//return false;
 		} catch(Throwable e) {
