@@ -2,6 +2,7 @@ package com.beef.easytcp.base;
 
 import java.net.Socket;
 import java.nio.channels.SelectionKey;
+import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 
 import org.apache.log4j.Logger;
@@ -14,7 +15,11 @@ public class SocketChannelUtil {
 		try {
 			if(selectionKey != null && selectionKey.isValid()) {
 				try {
-					closeSocketChannel((SocketChannel) selectionKey.channel());
+					if(ServerSocketChannel.class.isAssignableFrom(selectionKey.channel().getClass())) {
+						closeServerSocketChannel((ServerSocketChannel) selectionKey.channel());
+					} else {
+						closeSocketChannel((SocketChannel) selectionKey.channel());
+					}
 				} finally {
 					try {
 						selectionKey.cancel();
@@ -30,6 +35,22 @@ public class SocketChannelUtil {
 		} catch(Throwable e) {
 			logger.error("clearSelectionKey()", e);
 			return false;
+		}
+	}
+	
+	protected static void closeServerSocketChannel(ServerSocketChannel socketChannel) {
+		try {
+			if(!socketChannel.socket().isClosed()) {
+				socketChannel.socket().close();
+			}
+		} catch(Throwable e) {
+			logger.error(null, e);
+		}
+
+		try {
+			socketChannel.close();
+		} catch(Throwable e) {
+			logger.error(null, e);
 		}
 	}
 

@@ -14,6 +14,8 @@ public class TcpServerConfig {
 	private int _soTimeout = 100;
 	
 	private int socketIOThreadCount = 4;
+	
+	private int readEventThreadCount = 4;
 		
 	//64kb
 	private int socketReceiveBufferSize = 65536;
@@ -90,6 +92,14 @@ public class TcpServerConfig {
 
 	public void setSoTimeout(int soTimeout) {
 		_soTimeout = soTimeout;
+	}
+
+	public int getReadEventThreadCount() {
+		return readEventThreadCount;
+	}
+
+	public void setReadEventThreadCount(int readEventThreadCount) {
+		this.readEventThreadCount = readEventThreadCount;
 	}
 
 

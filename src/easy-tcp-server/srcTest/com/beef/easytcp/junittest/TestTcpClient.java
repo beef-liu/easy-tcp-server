@@ -162,7 +162,7 @@ public class TestTcpClient {
 		}
 	}
 	
-	private static class MyTcpClinetEventHandler extends AbstractTcpEventHandler {
+	private static class MyTcpClinetEventHandler extends AbstractTcpEventHandler<ByteBuff> {
 		private volatile int _successCount = 0;
 		private long _lastReceiveTime = 0;
 		private int sentMaxCount = 100;
@@ -203,7 +203,7 @@ public class TestTcpClient {
 				sendBuff.clear();
 				System.arraycopy(requestBytes, 0, sendBuff.array(), 0, requestBytes.length); 
 				sendBuff.limit(requestBytes.length);
-				writeMessage(sendBuff);
+				sendMessage(sendBuff);
 			} catch(Throwable e) {
 				e.printStackTrace();
 			} finally {
@@ -212,16 +212,16 @@ public class TestTcpClient {
 		}
 
 		@Override
-		public void didReceivedMsg(MessageList<? extends ByteBuff> messages) {
+		public void didReceiveMessage(MessageList<ByteBuff> messages) {
 			Iterator<? extends ByteBuff> iter = messages.iterator();
 			
 			while(iter.hasNext()) {
-				didReceivedMsg(iter.next());
+				didReceiveMessage(iter.next());
 			}
 		}
 
 		@Override
-		public void didReceivedMsg(ByteBuff message) {
+		public void didReceiveMessage(ByteBuff message) {
 			System.out.println("didReceivedMsg() ------");
 
 			_lastReceiveTime = System.currentTimeMillis();

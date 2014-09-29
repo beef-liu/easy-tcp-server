@@ -2,7 +2,7 @@ package com.beef.easytcp.base;
 
 import java.nio.ByteBuffer;
 
-public class ByteBuff {
+public class ByteBuff implements IByteBuff {
 	protected ByteBuffer _backBuffer;
 	
 	public ByteBuff(boolean isAllocateDirect, int bufferByteSize) {
@@ -17,8 +17,13 @@ public class ByteBuff {
 		_backBuffer = byteBuff;
 	}
 	
+	@Override
 	public ByteBuffer getByteBuffer() {
 		return _backBuffer;
 	}
 
+	@Override
+	public void destroy() {
+		//do nothing
+	}
 }

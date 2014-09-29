@@ -6,6 +6,7 @@ import java.net.SocketTimeoutException;
 import java.nio.channels.SelectionKey;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
@@ -22,6 +23,7 @@ import com.beef.easytcp.client.SyncTcpClient;
 import com.beef.easytcp.client.TcpClientConfig;
 import com.beef.easytcp.client.pool.PooledSyncTcpClient;
 import com.beef.easytcp.client.pool.SyncTcpClientPool;
+import com.beef.easytcp.server.TcpException;
 import com.beef.easytcp.server.TcpServer;
 import com.beef.easytcp.server.TcpServerConfig;
 
@@ -107,7 +109,7 @@ public class TestTcpServer {
 			final TcpClientConfig tcpClientConfig = new TcpClientConfig();
 			tcpClientConfig.setHost(hostRedirectTo);
 			tcpClientConfig.setPort(portRedirectTo);
-			tcpClientConfig.setConnectTimeoutMS(500);
+			tcpClientConfig.setConnectTimeoutMS(1000);
 			tcpClientConfig.setSoTimeoutMS(1000);
 			tcpClientConfig.setReceiveBufferSize(SocketReceiveBufferSize);
 			tcpClientConfig.setSendBufferSize(SocketReceiveBufferSize);
@@ -142,10 +144,10 @@ public class TestTcpServer {
 			*/
 			TcpServer server = new TcpServer(
 					serverConfig, isAllocateDirect, 
-					new ITcpEventHandlerFactory() {
+					new ITcpEventHandlerFactory<PooledByteBuffer>() {
 						
 						@Override
-						public AbstractTcpEventHandler createHandler(int sessionId,
+						public AbstractTcpEventHandler<PooledByteBuffer> createHandler(int sessionId,
 								//SelectionKey readKey, 
 								SelectionKey writeKey) {
 							return (new TcpServerEventHandlerBySyncClient(
@@ -153,8 +155,8 @@ public class TestTcpServer {
 									//readKey, 
 									writeKey));
 						}
-					},
-					isSyncInvokeDidReceivedMsg
+					}
+					//isSyncInvokeDidReceivedMsg
 					);
 			
 			server.start();
@@ -170,12 +172,12 @@ public class TestTcpServer {
 		}
 	}
 	
-	private class TcpServerEventHandlerBySyncClient extends AbstractTcpEventHandler {
+	private class TcpServerEventHandlerBySyncClient extends AbstractTcpEventHandler<PooledByteBuffer> {
 
 		//private SyncTcpClient tcpClient;
 		private PooledSyncTcpClient tcpClient;
 		
-		public TcpServerEventHandlerBySyncClient(				
+		public TcpServerEventHandlerBySyncClient(
 				TcpClientConfig tcpConfig,
 				int sessionId,
 				//SelectionKey readKey,
@@ -185,7 +187,7 @@ public class TestTcpServer {
 					writeKey);
 			
 			//tcpClient = new SyncTcpClient(tcpConfig);
-			tcpClient = _tcpClientPool.borrowObject();
+			PooledSyncTcpClient tcpClient = _tcpClientPool.borrowObject();
 			
 //			try {
 //				tcpClient.connect();
@@ -210,6 +212,7 @@ public class TestTcpServer {
 			}
 			*/
 			
+			/*
 			if(tcpClient != null) {
 				try {
 					tcpClient.returnToPool();
@@ -217,52 +220,96 @@ public class TestTcpServer {
 					logger.error(null, e);
 				}
 			}
-			
+			*/
+		}
+		
+		@Override
+		public void destroy() {
+			if(tcpClient != null) {
+				try {
+					tcpClient.returnToPool();
+				} catch(Throwable e) {
+					logger.error(null, e);
+				}
+			}
+
+			super.destroy();
 		}
 
 		@Override
-		public void didReceivedMsg(MessageList<? extends ByteBuff> messages) {
-			Iterator<? extends ByteBuff> iter = messages.iterator();
-			ByteBuff msg;
-			while(iter.hasNext()) {
-				msg = iter.next();
+		public void didReceiveMessage(MessageList<PooledByteBuffer> messages) {
 
-				didReceivedMsg(msg);
+			try {
+				Iterator<PooledByteBuffer> iter = messages.iterator();
+				PooledByteBuffer msg;
+				while(iter.hasNext()) {
+					msg = iter.next();
+
+					try {
+						handleReceiveMsg(msg);
+					} catch(Throwable e) {
+						logger.error(null, e);
+					}
+				}
+			} catch(Throwable e) {
+				logger.error(null, e);
+			} finally {
+				try {
+					tcpClient.returnToPool();
+				} catch(Throwable e) {
+					logger.error(null, e);
+				}
 			}
 		}
 
 		@Override
-		public void didReceivedMsg(ByteBuff msg) {
+		public void didReceiveMessage(PooledByteBuffer msg) {
+			PooledSyncTcpClient tcpClient = _tcpClientPool.borrowObject();
+
 			try {
-				msg.getByteBuffer().flip();
-				tcpClient.send(msg.getByteBuffer().array(), 
-						msg.getByteBuffer().position(), msg.getByteBuffer().remaining());
-				
-				
-				try {
-					msg.getByteBuffer().clear();
-					int receiveLen = tcpClient.receive(
-							msg.getByteBuffer().array(), 0, msg.getByteBuffer().limit());
-					if(receiveLen > 0) {
-						if(msg.getByteBuffer().array()[0] == '\r') {
-							logger.error("didReceivedMsg() reply starts with '\\r'");
-						}
-						msg.getByteBuffer().position(0);
-						msg.getByteBuffer().limit(receiveLen);
-						writeMessage(msg.getByteBuffer());
-					}
-				} catch(SocketTimeoutException e) {
-					logger.error("Tcp Client receive timeout---");
-				}
-				
+				handleReceiveMsg(msg);
 			} catch(Throwable e) {
 				logger.error(null, e);
+			} finally {
+				try {
+					tcpClient.returnToPool();
+				} catch(Throwable e) {
+					logger.error(null, e);
+				}
 			}
 		}
 		
+		private void handleReceiveMsg(ByteBuff msg) throws IOException, TcpException {
+			//send command ------------------------------------
+			msg.getByteBuffer().flip();
+			tcpClient.send(msg.getByteBuffer().array(), 
+					msg.getByteBuffer().position(), msg.getByteBuffer().remaining());
+
+			//receive response ------------------------------------
+			msg.getByteBuffer().clear();
+			int receiveLen;
+			receiveLen = tcpClient.receive(
+					msg.getByteBuffer().array(), 0, msg.getByteBuffer().limit());
+			
+			if(receiveLen > 0) {
+				if(receiveLen == msg.getByteBuffer().limit()) {
+					logger.error("didReceivedMsg() receiveLen == buffer.limit");
+				}
+				if(msg.getByteBuffer().array()[0] == '\r') {
+					System.out.println("didReceivedMsg() reply starts with '\\r'."
+							+ " receiveLen:" + receiveLen
+							+ " response:" + new String(msg.getByteBuffer().array(), 0, receiveLen));
+				}
+				
+				msg.getByteBuffer().position(0);
+				msg.getByteBuffer().limit(receiveLen);
+				sendMessage(msg.getByteBuffer());
+			}
+		}
 	}
 	
-	private class TcpServerEventHandlerByAsyncClient extends AbstractTcpEventHandler {
+	/* I think async client is slower than sync client, so it not use any more
+	private class TcpServerEventHandlerByAsyncClient extends AbstractTcpEventHandler<PooledByteBuffer> {
 		private AsyncTcpClient tcpClient;
 		
 		public TcpServerEventHandlerByAsyncClient(
@@ -275,10 +322,10 @@ public class TestTcpServer {
 					writeKey);
 			
 			tcpClient = new AsyncTcpClient(tcpClientConfig, sessionId, 
-					new ITcpEventHandlerFactory() {
+					new ITcpEventHandlerFactory<ByteBuff>() {
 						
 						@Override
-						public AbstractTcpEventHandler createHandler(int sessionId,
+						public AbstractTcpEventHandler<ByteBuff> createHandler(int sessionId,
 								//SelectionKey readKey, 
 								SelectionKey writeKey) {
 							return new ClientEventHandler(sessionId, 
@@ -324,9 +371,9 @@ public class TestTcpServer {
 		}
 
 		@Override
-		public void didReceivedMsg(MessageList<? extends ByteBuff> messages) {
-			Iterator<? extends ByteBuff> iter = messages.iterator();
-			ByteBuff msg;
+		public void didReceivedMsg(MessageList<PooledByteBuffer> messages) {
+			Iterator<PooledByteBuffer> iter = messages.iterator();
+			PooledByteBuffer msg;
 			while(iter.hasNext()) {
 				msg = iter.next();
 
@@ -335,7 +382,7 @@ public class TestTcpServer {
 		}
 
 		@Override
-		public void didReceivedMsg(ByteBuff msg) {
+		public void didReceivedMsg(PooledByteBuffer msg) {
 			try {
 				msg.getByteBuffer().flip();
 				tcpClient.send(msg.getByteBuffer());
@@ -345,7 +392,7 @@ public class TestTcpServer {
 		}
 	
 		
-		private class ClientEventHandler extends AbstractTcpEventHandler {
+		private class ClientEventHandler extends AbstractTcpEventHandler<ByteBuff> {
 
 			public ClientEventHandler(int sessionId, 
 					//SelectionKey readKey, 
@@ -364,8 +411,8 @@ public class TestTcpServer {
 			}
 
 			@Override
-			public void didReceivedMsg(MessageList<? extends ByteBuff> messages) {
-				Iterator<? extends ByteBuff> iter = messages.iterator();
+			public void didReceivedMsg(MessageList<ByteBuff> messages) {
+				Iterator<ByteBuff> iter = messages.iterator();
 				ByteBuff msg;
 				while(iter.hasNext()) {
 					msg = iter.next();
@@ -386,88 +433,6 @@ public class TestTcpServer {
 			
 		}
 		
-	}
-	
-	/*
-	private class TcpServerEventHandlerPool {
-		private ConcurrentHashMap<Integer, TcpServerEventHandler> _handlerMap = new ConcurrentHashMap<Integer, TestTcpServer.TcpServerEventHandler>();
-		
-		public TcpServerEventHandlerPool() {
-		}
-		
-		public TcpServerEventHandler getHandler(SelectionKeyWrapper keyWrapper) {
-			TcpServerEventHandler handler = _handlerMap.get(keyWrapper.getId());
-			if(handler == null) {
-				handler = new TcpServerEventHandler();
-				_handlerMap.put(keyWrapper.getId(), handler);
-			}
-			
-			return handler;
-		}
-	}
-	
-	private class TcpServerEventHandler extends AbstractTcpEventHandler {
-		private PooledSyncTcpClient tcpClient;
-		
-		public TcpServerEventHandler() {
-			super();
-
-			tcpClient = _tcpClientPool.borrowObject();
-		} 
-
-		@Override
-		public void didConnect(SelectionKeyWrapper keyWrapper) {
-		}
-
-		@Override
-		public void didDisconnect(SelectionKeyWrapper keyWrapper) {
-			if(tcpClient != null) {
-				try {
-					tcpClient.returnToPool();
-					logger.debug("tcpClient returnToPool:" + keyWrapper.getId());
-				} catch(Throwable e) {
-					logger.error(null, e);
-				}
-			}
-		}
-
-		@Override
-		public void didReceivedMsg(SelectionKeyWrapper keyWrapper, MessageList<? extends ByteBuff> messages) {
-			Iterator<? extends ByteBuff> iter = messages.iterator();
-			ByteBuff msg;
-			while(iter.hasNext()) {
-				msg = iter.next();
-
-				didReceivedMsg(keyWrapper, msg);
-			}
-		}
-
-		@Override
-		public void didReceivedMsg(SelectionKeyWrapper keyWrapper, ByteBuff msg) {
-			
-			try {
-
-				msg.getByteBuffer().flip();
-				
-				
-				tcpClient.send(msg.getByteBuffer().array(), msg.getByteBuffer().position(), msg.getByteBuffer().limit());
-				
-				msg.getByteBuffer().clear();
-				
-				try {
-					int receiveLen = tcpClient.receive(msg.getByteBuffer().array(), 0, msg.getByteBuffer().limit());
-					if(receiveLen > 0) {
-						msg.getByteBuffer().limit(receiveLen);
-						writeMessage(keyWrapper, msg.getByteBuffer());
-					}
-				} catch(SocketTimeoutException e) {
-					logger.error("Tcp Client receive timeout---");
-				}
-			} catch(Throwable e) {
-				logger.error(null, e);
-			} finally {
-			}
-		}
 	}
 	*/
 }

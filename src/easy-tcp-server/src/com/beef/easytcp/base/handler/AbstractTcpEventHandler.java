@@ -1,16 +1,23 @@
 package com.beef.easytcp.base.handler;
 
 import java.io.IOException;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.CancelledKeyException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 
 import com.beef.easytcp.base.ByteBuff;
+import com.beef.easytcp.base.IByteBuff;
 import com.beef.easytcp.base.SocketChannelUtil;
 import com.beef.easytcp.server.TcpException;
 
-public abstract class AbstractTcpEventHandler {
+public abstract class AbstractTcpEventHandler implements ITcpEventHandler {
+	
+}
+
+/* old version -------
+public abstract class AbstractTcpEventHandler <MsgType extends IByteBuff> {
 	protected int _sessionId;
 	//protected SelectionKey _readKey;
 	protected SelectionKey _writeKey;
@@ -41,17 +48,11 @@ public abstract class AbstractTcpEventHandler {
 	
 	public abstract void didDisconnect();
 	
-	public abstract void didReceivedMsg(MessageList<? extends ByteBuff> messages);
+	public abstract void didReceiveMessage(MessageList<MsgType> msgs);
 	
-	public abstract void didReceivedMsg(ByteBuff message);
+	public abstract void didReceiveMessage(MsgType msg);
 	
-	/**
-	 * write msg(response) through socketChannel
-	 * @param msg
-	 * @return
-	 * @throws TcpException
-	 */
-	public int writeMessage(ByteBuffer msg) throws TcpException {
+	public int sendMessage(ByteBuffer msg) throws TcpException {
 //		if(_writeKey == null) {
 //			//already destroyed
 //			return 0;
@@ -85,7 +86,8 @@ public abstract class AbstractTcpEventHandler {
 					
 					return 0;
 				} else {
-					synchronized (_lockForWrite) {
+					//synchronized (_lockForWrite) 
+					{
 						if(msg.array()[msg.position()] == '\r') {
 							System.out.println("writeMessage() reply starts with '\\r'. position:" + msg.position());
 						}
@@ -109,6 +111,6 @@ public abstract class AbstractTcpEventHandler {
 		}
 		
 	}
-	
-	
 }
+
+*/

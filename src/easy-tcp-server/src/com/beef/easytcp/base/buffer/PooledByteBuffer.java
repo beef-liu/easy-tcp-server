@@ -28,6 +28,12 @@ public class PooledByteBuffer extends ByteBuff implements IPooledObject {
 	@Override
 	public void returnToPool() {
 		_backPool.returnObject(this);
+		_backPool = null;
 	}
 
+	@Override
+	public void destroy() {
+		_backPool.returnObject(this);
+		_backPool = null;
+	}
 }

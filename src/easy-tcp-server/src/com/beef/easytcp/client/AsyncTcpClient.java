@@ -18,10 +18,9 @@ import com.beef.easytcp.base.ByteBuff;
 import com.beef.easytcp.base.SocketChannelUtil;
 import com.beef.easytcp.base.buffer.PooledByteBuffer;
 import com.beef.easytcp.base.handler.AbstractTcpEventHandler;
+import com.beef.easytcp.base.handler.ITcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
 import com.beef.easytcp.base.handler.MessageList;
-import com.beef.easytcp.base.handler.SelectionKeyWrapper;
-import com.beef.easytcp.base.handler.SessionObj;
 import com.beef.easytcp.server.TcpException;
 
 public class AsyncTcpClient implements ITcpClient {
@@ -43,13 +42,14 @@ public class AsyncTcpClient implements ITcpClient {
 	protected volatile boolean _connected = false;
 	
 	protected ITcpEventHandlerFactory _eventHandlerFactory;
-	protected volatile AbstractTcpEventHandler _eventHandler;
+	protected volatile ITcpEventHandler _eventHandler;
 	
 	protected ByteBuff _byteBuff;
 	
 	protected int _sessionId;
 	
 	protected ExecutorService _ioThreadPool;
+	
 	
 	/**
 	 * 
@@ -66,7 +66,7 @@ public class AsyncTcpClient implements ITcpClient {
 		_byteBuff = new ByteBuff(false, _config.getReceiveBufferSize());
 	}
 	
-	public AbstractTcpEventHandler getEventHandler() {
+	public ITcpEventHandler getEventHandler() {
 		return _eventHandler;
 	}
 	
@@ -94,7 +94,7 @@ public class AsyncTcpClient implements ITcpClient {
 				_connectSelector, SelectionKey.OP_CONNECT 
 				);
 		
-		_ioThreadPool = Executors.newFixedThreadPool(2);
+		_ioThreadPool = Executors.newCachedThreadPool();
 		_ioThreadPool.execute(new ConnectThread());
 
 		//create io selector ----------------------
@@ -265,7 +265,7 @@ public class AsyncTcpClient implements ITcpClient {
 					
 					if(readLen > 0) {
 						if(_eventHandler != null) {
-							_eventHandler.didReceivedMsg(_byteBuff);
+							_eventHandler.didReceiveMessage(_byteBuff);
 						}
 					} else if(readLen < 0) {
 						//mostly it is -1, and means server has disconnected
@@ -289,9 +289,18 @@ public class AsyncTcpClient implements ITcpClient {
 				
 	}
 	
+	protected class WriteThread implements Runnable {
+
+		@Override
+		public void run() {
+			// TODO Auto-generated method stub
+			
+		}
+	}
+	
 
 	public int send(ByteBuffer buffer) throws TcpException {
-		return _eventHandler.writeMessage(buffer);
+		return _eventHandler.sendMessage(buffer);
 	}
 	/*
 	public int send(ByteBuffer buffer) throws IOException {
