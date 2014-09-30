@@ -199,7 +199,7 @@ public class TcpServer implements IServer {
 			byteBufferPoolConfig.setMaxWait(_PoolMaxWait);
 			*/
 			byteBufferPoolConfig.setMaxTotal(_tcpServerConfig.getConnectMaxCount() * 2);
-			byteBufferPoolConfig.setMaxWaitMillis(10);
+			byteBufferPoolConfig.setMaxWaitMillis(1000);
 			
 			//byteBufferPoolConfig.setSoftMinEvictableIdleTimeMillis(_softMinEvictableIdleTimeMillis);
 			//byteBufferPoolConfig.setTestOnBorrow(_testOnBorrow);
@@ -351,6 +351,11 @@ public class TcpServer implements IServer {
 		@Override
 		public IByteBuff createBuffer() {
 			return _bufferPool.borrowObject();
+		}
+
+		@Override
+		public void sendMessage(MessageList<? extends IByteBuff> msgs) {
+			_writeEventThreadPool.execute(new TcpWriteEvent(_sessionId, _writeKey, msgs));
 		}
 		
 	}

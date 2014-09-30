@@ -243,6 +243,11 @@ public class AsyncTcpClient implements ITcpClient {
 		public IByteBuff createBuffer() {
 			return _bufferPool.borrowObject();
 		}
+
+		@Override
+		public void sendMessage(MessageList<? extends IByteBuff> msgs) {
+			_writeEventThread.addTask(new TcpWriteEvent(_sessionId, _writeKey, msgs));
+		}
 		
 	};
 	

@@ -1,8 +1,10 @@
 package com.beef.easytcp.base.handler;
 
+import java.nio.ByteBuffer;
 import java.nio.channels.CancelledKeyException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
+import java.util.Iterator;
 
 import org.apache.log4j.Logger;
 
@@ -14,8 +16,9 @@ public class TcpWriteEvent implements ITask {
 	private final static Logger logger = Logger.getLogger(TcpWriteEvent.class);
 
 	protected int _sessionId;
-	protected IByteBuff _msg;
 	protected SelectionKey _writeKey;
+	protected MessageList<? extends IByteBuff> _msgs = null;
+	protected IByteBuff _msg = null;
 
 	
 	public int getSessionId() {
@@ -35,6 +38,16 @@ public class TcpWriteEvent implements ITask {
 		_writeKey = writeKey;
 		_msg = msg;
 	}
+
+	public TcpWriteEvent(
+			int sessionId,
+			SelectionKey writeKey,
+			MessageList<? extends IByteBuff> msgs
+			) {
+		_sessionId = sessionId;
+		_writeKey = writeKey;
+		_msgs = msgs;
+	}
 	
 	@Override
 	public void run() {
@@ -45,13 +58,35 @@ public class TcpWriteEvent implements ITask {
 				SocketChannelUtil.clearSelectionKey(_writeKey);
 				return;
 			} else {
-				//TODO DEBUG 
-				if(_msg.getByteBuffer().array()[_msg.getByteBuffer().position()] == '\r') {
-					System.out.println("writeMessage() reply starts with '\\r'. position:" 
-							+ _msg.getByteBuffer().position());
-				}
-				while(_msg.getByteBuffer().hasRemaining()) {
-					socketChannel.write(_msg.getByteBuffer());
+				if(_msg != null) {
+					//TODO DEBUG 
+					if(_msg.getByteBuffer().array()[0] == '\r') {
+						System.out.println("writeMessage() reply starts with '\\r'.");
+					}
+
+					while(_msg.getByteBuffer().hasRemaining()) {
+						socketChannel.write(_msg.getByteBuffer());
+					}
+				} else {
+					ByteBuffer[] bufferArray = new ByteBuffer[_msgs.size()];
+					
+					Iterator<? extends IByteBuff> iterMsgs = _msgs.iterator();
+					int index = 0;
+					while(iterMsgs.hasNext()) {
+						try {
+							bufferArray[index++] = iterMsgs.next().getByteBuffer(); 
+						} catch(Throwable e) {
+							logger.error(null, e);
+						}
+					}
+					
+					//TODO DEBUG 
+					if(bufferArray[0].array()[0] == '\r') {
+						System.out.println("writeMessage() replys starts with '\\r'.");
+					}
+					while(bufferArray[bufferArray.length - 1].hasRemaining()) {
+						socketChannel.write(bufferArray);
+					}
 				}
 			}
 		} catch(CancelledKeyException e) {
@@ -69,10 +104,22 @@ public class TcpWriteEvent implements ITask {
 
 	@Override
 	public void destroy() {
-		try {
-			_msg.destroy();
-		} catch(Throwable e) {
-			logger.error(null, e);
+		if(_msg != null) {
+			try {
+				_msg.destroy();
+			} catch(Throwable e) {
+				logger.error(null, e);
+			}
+		} else {
+			Iterator<? extends IByteBuff> iterMsgs = _msgs.iterator();
+			while(iterMsgs.hasNext()) {
+				try {
+					iterMsgs.next().destroy();
+				} catch(Throwable e) {
+					logger.error(null, e);
+				}
+			}
+			_msgs.clear();
 		}
 		
 		_sessionId = 0;

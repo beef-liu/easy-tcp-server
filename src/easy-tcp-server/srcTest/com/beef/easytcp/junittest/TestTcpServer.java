@@ -3,6 +3,8 @@ package com.beef.easytcp.junittest;
 
 import java.io.IOException;
 import java.net.SocketAddress;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.util.Iterator;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
@@ -30,16 +32,17 @@ public class TestTcpServer {
 
 	private final static Logger logger = Logger.getLogger(TestTcpServer.class);
 	
-	private final static int SocketReceiveBufferSize = 1024 * 32;
-
 	private SyncTcpClientPool _tcpClientPool;
+	protected static int SocketReceiveBufferSize = 1024 * 32;
 	
 	public static void main(String[] args) {
 		int maxConnection = 10000;
 		int ioThreadCount = 4;
 		int readEventThreadCount = 16;
 		//int writeEventThreadCount = ioThreadCount;
-		boolean isSyncInvokeDidReceivedMsg = false;
+		//boolean isSyncInvokeDidReceivedMsg = false;
+		int serverBufferSizeKB = 32;
+		int SocketReceiveBufferSize = 1024 * serverBufferSizeKB;
 		String hostRedirectTo = "127.0.0.1";
 		int portRedirectTo = 6379;
 		
@@ -50,11 +53,8 @@ public class TestTcpServer {
 				ioThreadCount = Integer.parseInt(args[i++]);
 				readEventThreadCount = Integer.parseInt(args[i++]);
 				
-				if(args[i++].equals("true")) {
-					isSyncInvokeDidReceivedMsg = true;
-				} else {
-					isSyncInvokeDidReceivedMsg = false;
-				}
+				serverBufferSizeKB = Integer.parseInt(args[i++]);
+				SocketReceiveBufferSize = 1024 * serverBufferSizeKB;
 				
 				hostRedirectTo = args[i++];
 				portRedirectTo = Integer.parseInt(args[i++]);
@@ -65,7 +65,7 @@ public class TestTcpServer {
 		System.out.println("MaxThread:" + maxConnection
 				+ " ioThreadCount:" + ioThreadCount
 				+ " readEventThreadCount:" + readEventThreadCount
-				+ " isSyncInvokeDidReceivedMsg:" + isSyncInvokeDidReceivedMsg
+				+ " SocketReceiveBufferSize:" + serverBufferSizeKB + " KB"
 				+ " hostRedirectTo:" + hostRedirectTo
 				+ " portRedirectTo:" + portRedirectTo 
 				+ "------------------------------");
@@ -73,13 +73,11 @@ public class TestTcpServer {
 		TestTcpServer test = new TestTcpServer();
 		test.startServer(
 				maxConnection, ioThreadCount, readEventThreadCount, 
-				isSyncInvokeDidReceivedMsg,
 				hostRedirectTo, portRedirectTo);
 	}
 	
 	public void startServer(
 			int maxConnection, int ioThreadCount, int readEventThreadCount, 
-			boolean isSyncInvokeDidReceivedMsg,
 			String hostRedirectTo, int portRedirectTo) {
 		try {
 			//int maxConnection = (int) (1024 * 4);
@@ -113,8 +111,8 @@ public class TestTcpServer {
 			int maxTcpClientPool = maxConnection;
 			GenericObjectPoolConfig tcpClientPoolConfig = new GenericObjectPoolConfig();
 			tcpClientPoolConfig.setMaxTotal(maxTcpClientPool);
-			tcpClientPoolConfig.setMaxIdle(maxTcpClientPool);
-			tcpClientPoolConfig.setMaxWaitMillis(100);
+			tcpClientPoolConfig.setMaxIdle(maxTcpClientPool / 5);
+			tcpClientPoolConfig.setMaxWaitMillis(1000);
 
 			_tcpClientPool = new SyncTcpClientPool(tcpClientPoolConfig, tcpClientConfig);
 			//final TcpServerEventHandlerPool handlerPool = new TcpServerEventHandlerPool();
@@ -166,11 +164,18 @@ public class TestTcpServer {
 
 		//private SyncTcpClient tcpClient;
 		private PooledSyncTcpClient tcpClient;
+		private MessageList<IByteBuff> _remainingMsgs = new MessageList<IByteBuff>();
 		
 		public TcpServerEventHandlerBySyncClient() {
 			
 			//tcpClient = new SyncTcpClient(tcpConfig);
 			tcpClient = _tcpClientPool.borrowObject();
+			try {
+				tcpClient.disconnect();
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
 			
 //			try {
 //				tcpClient.connect();
@@ -236,46 +241,118 @@ public class TestTcpServer {
 				ITcpReplyMessageHandler replyMessageHandler, IByteBuff msg) {
 			try {
 				//send command ------------------------------------
+				int msgLen = msg.getByteBuffer().remaining();
 				msg.getByteBuffer().flip();
 				tcpClient.send(msg.getByteBuffer().array(), 
 						msg.getByteBuffer().position(), msg.getByteBuffer().remaining());
 
 				//receive response ------------------------------------
-				receiveAndReply(replyMessageHandler);
+				receiveAndReply(replyMessageHandler, msg, msgLen);
+			} catch(SocketException e) {
+				try {
+					tcpClient.disconnect();
+				} catch(Throwable e1) {
+					logger.error(null, e1);
+				}
 			} catch(Throwable e) {
 				logger.error(null, e);
 			}
 		}
 		
-		private void receiveAndReply(ITcpReplyMessageHandler replyMessageHandler) throws IOException {
+		private void receiveAndReply(ITcpReplyMessageHandler replyMessageHandler, IByteBuff requestMsg, int msgLen) throws IOException {
 			IByteBuff msg = replyMessageHandler.createBuffer();
 			
 			msg.getByteBuffer().clear();
-			int receiveLen;
-			receiveLen = tcpClient.receive(
+			int rcvTotalLen = tcpClient.receive(
 					msg.getByteBuffer().array(), 0, msg.getByteBuffer().limit());
 			
-			if(receiveLen > 0) {
-				if(receiveLen == msg.getByteBuffer().limit()) {
-					logger.error("didReceivedMsg() receiveLen == buffer.limit");
+			//int receiveLen = tcpClient.receiveUntilFillUpBufferOrEnd(msg.getByteBuffer().array(), 0, msg.getByteBuffer().limit());
+			
+			/*
+			int rcvTotalLen = 0;
+			int rcvLen;
+			int position = 0;
+			int remaining = msg.getByteBuffer().limit();
+			tcpClient.connect();
+			while(true) {
+	    		try {
+					rcvLen = tcpClient.getSocket().getInputStream().read(
+							msg.getByteBuffer().array(), position, remaining);
+	    		} catch(SocketTimeoutException e) {
+	    			//nothing to read
+	    			break;
+	    		}
+	    		
+	    		if(rcvLen < 0) {
+	    			break;
+	    		}
+	    		
+	    		if(rcvLen > 0) {
+	    			remaining -= rcvLen;
+	    			position += rcvLen;
+	    			rcvTotalLen += rcvLen;
+	    			
+	    			if(msg.getByteBuffer().array()[position - 2] == '\r' 
+	    					&& msg.getByteBuffer().array()[position - 1] == '\n') {
+	    				break;
+	    			} else if(remaining == 0) {
+	    				break;
+	    			}
+	    		}
+			}
+			*/
+			
+			if(rcvTotalLen > 0) {
+				msg.getByteBuffer().position(0);
+				msg.getByteBuffer().limit(rcvTotalLen);
+
+				if(isResponseEndsCorrectly(msg.getByteBuffer().array(), msg.getByteBuffer().limit())) {
+					if(_remainingMsgs.size() > 0) {
+						MessageList<IByteBuff> msgs = _remainingMsgs.clone();
+						msgs.add(msg);
+						_remainingMsgs.clear();
+						
+						replyMessageHandler.sendMessage(msgs);
+					} else {
+						replyMessageHandler.sendMessage(msg);
+					}
+				} else {
+					_remainingMsgs.add(msg);
 				}
+				
+				/*
 				if(msg.getByteBuffer().array()[0] == '\r') {
 					System.out.println("didReceivedMsg() reply starts with '\\r'."
-							+ " receiveLen:" + receiveLen
-							+ " response:" + new String(msg.getByteBuffer().array(), 0, receiveLen));
+							+ " rcvTotalLen:" + rcvTotalLen
+							+ " request:" + new String(requestMsg.getByteBuffer().array(), 0, msgLen)
+							+ " response:" + new String(msg.getByteBuffer().array(), 0, rcvTotalLen));
+				} else if(msg.getByteBuffer().array()[rcvTotalLen - 2] != '\r'
+						|| msg.getByteBuffer().array()[rcvTotalLen - 1] != '\n') {
+					System.out.println("didReceivedMsg() reply not ends with '\\r\\n'."
+							+ " rcvTotalLen:" + rcvTotalLen
+							+ " request:" + new String(requestMsg.getByteBuffer().array(), 0, msgLen)
+							+ " response:" + new String(msg.getByteBuffer().array(), 0, rcvTotalLen));
 				}
+				*/
 				
-				msg.getByteBuffer().position(0);
-				msg.getByteBuffer().limit(receiveLen);
-				
-				replyMessageHandler.sendMessage(msg);
 			}
 		}
-		
+
+		private boolean isResponseEndsCorrectly(byte[] buffer, int contentLen) {
+			if(contentLen < 2) {
+				return false;
+			} else {
+				if(buffer[contentLen - 2] == '\r' && buffer[contentLen - 1] == '\n') {
+					return true;
+				} else {
+					return false;
+				}
+			}
+		}
 
 	}
 	
-	/* I think async client is slower than sync client, so it not use any more
+	/* I think async client is slower and more complex than sync client, so it not use any more
 	private class TcpServerEventHandlerByAsyncClient extends AbstractTcpEventHandler<PooledByteBuffer> {
 		private AsyncTcpClient tcpClient;
 		

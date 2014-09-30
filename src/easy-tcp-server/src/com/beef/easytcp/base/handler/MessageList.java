@@ -16,8 +16,19 @@ public class MessageList <T> implements Iterable<T> {
 	}
 	*/
 	
+	public MessageList<T> clone() {
+		MessageList<T> newList = new MessageList<T>();
+		newList._backList.addAll(_backList);
+		
+		return newList;
+	}
+	
 	public void add(T obj) {
 		_backList.add(obj);
+	}
+	
+	public void addAll(MessageList<T> msgs) {
+		_backList.addAll(msgs._backList);
 	}
 	
 	public int size() {

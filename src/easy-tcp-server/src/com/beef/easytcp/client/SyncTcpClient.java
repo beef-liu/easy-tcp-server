@@ -3,6 +3,7 @@ package com.beef.easytcp.client;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 
 public class SyncTcpClient implements ITcpClient {
 	protected TcpClientConfig _config;
@@ -40,6 +41,10 @@ public class SyncTcpClient implements ITcpClient {
 		}
     }
 
+	public Socket getSocket() {
+		return _socket;
+	}
+	
     public boolean isConnected() {
 		return _socket != null && _socket.isBound() && !_socket.isClosed()
 			&& _socket.isConnected() && !_socket.isInputShutdown()
@@ -88,6 +93,43 @@ public class SyncTcpClient implements ITcpClient {
     	connect();
     	
     	return _socket.getInputStream().read(buffer, offset, readMaxLen);
+    }
+
+    public int receiveUntilFillUpBufferOrEnd(byte[] buffer, int offset, int readMaxLen) throws IOException {
+    	connect();
+    	
+    	int readTotalLen = 0;
+    	int readLen;
+    	int position = offset;
+    	int remaining = readMaxLen;
+    	while(true) {
+    		try {
+        		readLen = _socket.getInputStream().read(buffer, position, remaining);
+    		} catch(SocketTimeoutException e) {
+    			//nothing to read
+    			break;
+    		}
+    		
+    		if(readLen < 0) {
+    			if(readTotalLen == 0) {
+    				return -1;
+    			}
+    			
+    			break;
+    		}
+    		
+    		if(readLen > 0) {
+    			remaining -= readLen;
+    			position += readLen;
+    			readTotalLen += readLen;
+    			
+    			if(remaining == 0) {
+    				break;
+    			}
+    		}
+    	}
+    	
+    	return readTotalLen;
     }
     
 }

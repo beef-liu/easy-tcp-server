@@ -20,4 +20,6 @@ public interface ITcpReplyMessageHandler {
 	 */
 	public void sendMessage(IByteBuff msg);
 	
+	public void sendMessage(MessageList<? extends IByteBuff> msgs);
+	
 }
