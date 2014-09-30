@@ -71,18 +71,12 @@ public class TaskLoopThread <TaskType extends ITask> extends Thread {
 			while(!_stopFlg) {
 				t = _taskQueue.take();
 				
-				/*
 				//do beforeRun() --------
 				try {
-					t.beforeRun();
+					beforeRun(t);
 				} catch(Throwable e) {
-					try {
-						t.errorOccur(e, ErrorOccurredInMethod.BeforeRun);
-					} catch(Throwable e1) {
-						logError(e1);
-					}
+					logger.error(null, e);
 				}
-				*/
 				
 				//do run() --------
 				try {
@@ -97,6 +91,12 @@ public class TaskLoopThread <TaskType extends ITask> extends Thread {
 					*/
 					logger.error(null, e);
 				} finally {
+					try {
+						afterRun(t);
+					} catch(Throwable e) {
+						logger.error(null, e);
+					}
+
 					try {
 						//destroy
 						t.destroy();
@@ -115,6 +115,20 @@ public class TaskLoopThread <TaskType extends ITask> extends Thread {
 		} catch(InterruptedException e) {
 			//System.out.println("TaskLoop.run() end by interrupt");
 		}
+	}
+	
+	/**
+	 * it is supposed to be override to inject some operation
+	 */
+	protected void beforeRun(TaskType t) {
+		//do nothing
+	}
+	
+	/**
+	 * it is supposed to be override to inject some operation
+	 */
+	protected void afterRun(TaskType t) {
+		//do nothing
 	}
 		
 }

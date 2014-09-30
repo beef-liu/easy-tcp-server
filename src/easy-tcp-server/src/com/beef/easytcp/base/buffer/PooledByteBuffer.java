@@ -30,10 +30,24 @@ public class PooledByteBuffer extends ByteBuff implements IPooledObject {
 		_backPool.returnObject(this);
 		_backPool = null;
 	}
+	
+	@Override
+	public ByteBuffer getByteBuffer() {
+		if(_backPool == null) {
+			throw new RuntimeException("PooledByteBuffer has already been returned to pool.");
+		}
+		
+		return super.getByteBuffer();
+	}
 
 	@Override
 	public void destroy() {
-		_backPool.returnObject(this);
-		_backPool = null;
+		synchronized (this) {
+			if(_backPool != null) {
+				_backPool.returnObject(this);
+				_backPool = null;
+			}
+		}
 	}
+	
 }

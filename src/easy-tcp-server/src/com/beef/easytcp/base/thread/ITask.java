@@ -9,6 +9,10 @@ public interface ITask extends Runnable {
 	};
 	*/
 	
+	/**
+	 * Tasks of same group will be executed in same single thread, and it keeps sequential.
+	 * @return
+	 */
 	public int getTaskGroupId();
 	
 	/**

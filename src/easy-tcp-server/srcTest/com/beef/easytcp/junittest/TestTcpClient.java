@@ -1,15 +1,14 @@
 package com.beef.easytcp.junittest;
 
-import java.nio.ByteBuffer;
-import java.nio.channels.SelectionKey;
-import java.util.Arrays;
+import java.net.SocketAddress;
 import java.util.Iterator;
 
 import org.junit.Test;
 
-import com.beef.easytcp.base.ByteBuff;
-import com.beef.easytcp.base.handler.AbstractTcpEventHandler;
+import com.beef.easytcp.base.IByteBuff;
+import com.beef.easytcp.base.handler.ITcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
+import com.beef.easytcp.base.handler.ITcpReplyMessageHandler;
 import com.beef.easytcp.base.handler.MessageList;
 import com.beef.easytcp.client.AsyncTcpClient;
 import com.beef.easytcp.client.SyncTcpClient;
@@ -93,13 +92,12 @@ public class TestTcpClient {
 		ITcpEventHandlerFactory eventHandlerFactory = new ITcpEventHandlerFactory() {
 			
 			@Override
-			public AbstractTcpEventHandler createHandler(int sessionId,
-					SelectionKey writeKey) {
-				return new MyTcpClinetEventHandler(sessionId, writeKey);
+			public ITcpEventHandler createHandler(int sessionId) {
+				return new MyTcpClinetEventHandler();
 			}
 		};
 		
-		AsyncTcpClient client = new AsyncTcpClient(tcpConfig, 0, eventHandlerFactory);
+		AsyncTcpClient client = new AsyncTcpClient(tcpConfig, 0, eventHandlerFactory, 64);
 
 		try {
 			client.connect();
@@ -162,7 +160,7 @@ public class TestTcpClient {
 		}
 	}
 	
-	private static class MyTcpClinetEventHandler extends AbstractTcpEventHandler<ByteBuff> {
+	private static class MyTcpClinetEventHandler implements ITcpEventHandler {
 		private volatile int _successCount = 0;
 		private long _lastReceiveTime = 0;
 		private int sentMaxCount = 100;
@@ -172,11 +170,9 @@ public class TestTcpClient {
 			return sentCount;
 		}
 
-		ByteBuffer sendBuff = ByteBuffer.allocate(32);
+		//ByteBuffer sendBuff = ByteBuffer.allocate(32);
 		
-		public MyTcpClinetEventHandler(
-				int sessionId, SelectionKey writeKey) {
-			super(sessionId, writeKey);
+		public MyTcpClinetEventHandler() {
 		}
 		
 		public int getSuccessCount() {
@@ -188,8 +184,9 @@ public class TestTcpClient {
 		}
 
 		@Override
-		public void didConnect() {
-			sendRequest();
+		public void didConnect(ITcpReplyMessageHandler replyMessageHandler,
+				SocketAddress remoteAddress) {
+			sendRequest(replyMessageHandler);
 		}
 
 		@Override
@@ -198,12 +195,15 @@ public class TestTcpClient {
 			
 		}
 		
-		private void sendRequest() {
+		private void sendRequest(ITcpReplyMessageHandler replyMessageHandler) {
 			try {
-				sendBuff.clear();
-				System.arraycopy(requestBytes, 0, sendBuff.array(), 0, requestBytes.length); 
-				sendBuff.limit(requestBytes.length);
-				sendMessage(sendBuff);
+				IByteBuff sendBuff = replyMessageHandler.createBuffer();
+				sendBuff.getByteBuffer().clear();
+				
+				System.arraycopy(requestBytes, 0, sendBuff.getByteBuffer().array(), 0, requestBytes.length); 
+				sendBuff.getByteBuffer().limit(requestBytes.length);
+				
+				replyMessageHandler.sendMessage(sendBuff);
 			} catch(Throwable e) {
 				e.printStackTrace();
 			} finally {
@@ -212,29 +212,31 @@ public class TestTcpClient {
 		}
 
 		@Override
-		public void didReceiveMessage(MessageList<ByteBuff> messages) {
-			Iterator<? extends ByteBuff> iter = messages.iterator();
+		public void didReceiveMessage(
+				ITcpReplyMessageHandler replyMessageHandler,
+				MessageList<? extends IByteBuff> msgs) {
+			Iterator<? extends IByteBuff> iter = msgs.iterator();
 			
 			while(iter.hasNext()) {
-				didReceiveMessage(iter.next());
+				didReceiveMessage(replyMessageHandler, iter.next());
 			}
 		}
-
+		
 		@Override
-		public void didReceiveMessage(ByteBuff message) {
+		public void didReceiveMessage(
+				ITcpReplyMessageHandler replyMessageHandler, IByteBuff msg) {
 			System.out.println("didReceivedMsg() ------");
 
 			_lastReceiveTime = System.currentTimeMillis();
 			
-			message.getByteBuffer().flip();
-			if(message.getByteBuffer().remaining() == expectResponseBytes.length
-					&& isBytesEqual(message.getByteBuffer().array(), expectResponseBytes, expectResponseBytes.length)) {
+			msg.getByteBuffer().flip();
+			if(msg.getByteBuffer().remaining() == expectResponseBytes.length
+					&& isBytesEqual(msg.getByteBuffer().array(), expectResponseBytes, expectResponseBytes.length)) {
 				_successCount++;
 				System.out.println("didReceivedMsg() _successCount:" + _successCount);
 			}
 			
-			sendRequest();
-
+			sendRequest(replyMessageHandler);
 		}
 		
 	}

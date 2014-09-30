@@ -2,28 +2,20 @@ package com.beef.easytcp.junittest;
 
 
 import java.io.IOException;
-import java.net.SocketTimeoutException;
-import java.nio.channels.SelectionKey;
+import java.net.SocketAddress;
 import java.util.Iterator;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
 
-import com.beef.easytcp.base.ByteBuff;
-import com.beef.easytcp.base.buffer.PooledByteBuffer;
-import com.beef.easytcp.base.handler.AbstractTcpEventHandler;
+import com.beef.easytcp.base.IByteBuff;
+import com.beef.easytcp.base.handler.ITcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
+import com.beef.easytcp.base.handler.ITcpReplyMessageHandler;
 import com.beef.easytcp.base.handler.MessageList;
-import com.beef.easytcp.base.handler.SelectionKeyWrapper;
-import com.beef.easytcp.base.handler.SessionObj;
-import com.beef.easytcp.client.AsyncTcpClient;
-import com.beef.easytcp.client.SyncTcpClient;
 import com.beef.easytcp.client.TcpClientConfig;
 import com.beef.easytcp.client.pool.PooledSyncTcpClient;
 import com.beef.easytcp.client.pool.SyncTcpClientPool;
-import com.beef.easytcp.server.TcpException;
 import com.beef.easytcp.server.TcpServer;
 import com.beef.easytcp.server.TcpServerConfig;
 
@@ -38,14 +30,14 @@ public class TestTcpServer {
 
 	private final static Logger logger = Logger.getLogger(TestTcpServer.class);
 	
-	private final static int SocketReceiveBufferSize = 1024 * 64;
+	private final static int SocketReceiveBufferSize = 1024 * 32;
 
 	private SyncTcpClientPool _tcpClientPool;
 	
 	public static void main(String[] args) {
 		int maxConnection = 10000;
 		int ioThreadCount = 4;
-		int workThreadCount = 2048;
+		int workThreadCount = 32;
 		boolean isSyncInvokeDidReceivedMsg = false;
 		String hostRedirectTo = "127.0.0.1";
 		int portRedirectTo = 6379;
@@ -102,6 +94,8 @@ public class TestTcpServer {
 			serverConfig.setSocketIOThreadCount(ioThreadCount);
 			serverConfig.setSocketReceiveBufferSize(SocketReceiveBufferSize);
 			serverConfig.setSocketSendBufferSize(SocketReceiveBufferSize);
+			serverConfig.setReadEventThreadCount(workThreadCount);
+			serverConfig.setWriteEventThreadCount(workThreadCount);
 			
 			boolean isAllocateDirect = false;
 			
@@ -115,7 +109,7 @@ public class TestTcpServer {
 			tcpClientConfig.setSendBufferSize(SocketReceiveBufferSize);
 
 			//tcp client
-			int maxTcpClientPool = workThreadCount;
+			int maxTcpClientPool = maxConnection;
 			GenericObjectPoolConfig tcpClientPoolConfig = new GenericObjectPoolConfig();
 			tcpClientPoolConfig.setMaxTotal(maxTcpClientPool);
 			tcpClientPoolConfig.setMaxIdle(maxTcpClientPool);
@@ -144,16 +138,11 @@ public class TestTcpServer {
 			*/
 			TcpServer server = new TcpServer(
 					serverConfig, isAllocateDirect, 
-					new ITcpEventHandlerFactory<PooledByteBuffer>() {
+					new ITcpEventHandlerFactory() {
 						
 						@Override
-						public AbstractTcpEventHandler<PooledByteBuffer> createHandler(int sessionId,
-								//SelectionKey readKey, 
-								SelectionKey writeKey) {
-							return (new TcpServerEventHandlerBySyncClient(
-									tcpClientConfig, sessionId, 
-									//readKey, 
-									writeKey));
+						public ITcpEventHandler createHandler(int sessionId) {
+							return (new TcpServerEventHandlerBySyncClient());
 						}
 					}
 					//isSyncInvokeDidReceivedMsg
@@ -172,22 +161,15 @@ public class TestTcpServer {
 		}
 	}
 	
-	private class TcpServerEventHandlerBySyncClient extends AbstractTcpEventHandler<PooledByteBuffer> {
+	private class TcpServerEventHandlerBySyncClient implements ITcpEventHandler {
 
 		//private SyncTcpClient tcpClient;
 		private PooledSyncTcpClient tcpClient;
 		
-		public TcpServerEventHandlerBySyncClient(
-				TcpClientConfig tcpConfig,
-				int sessionId,
-				//SelectionKey readKey,
-				SelectionKey writeKey) {
-			super(sessionId, 
-					//readKey, 
-					writeKey);
+		public TcpServerEventHandlerBySyncClient() {
 			
 			//tcpClient = new SyncTcpClient(tcpConfig);
-			PooledSyncTcpClient tcpClient = _tcpClientPool.borrowObject();
+			tcpClient = _tcpClientPool.borrowObject();
 			
 //			try {
 //				tcpClient.connect();
@@ -195,11 +177,10 @@ public class TestTcpServer {
 //				e.printStackTrace();
 //			}
 		}
-		
+
 		@Override
-		public void didConnect() {
-			// TODO Auto-generated method stub
-			
+		public void didConnect(ITcpReplyMessageHandler replyMessageHandler,
+				SocketAddress remoteAddress) {
 		}
 
 		@Override
@@ -212,7 +193,6 @@ public class TestTcpServer {
 			}
 			*/
 			
-			/*
 			if(tcpClient != null) {
 				try {
 					tcpClient.returnToPool();
@@ -220,33 +200,21 @@ public class TestTcpServer {
 					logger.error(null, e);
 				}
 			}
-			*/
 		}
 		
-		@Override
-		public void destroy() {
-			if(tcpClient != null) {
-				try {
-					tcpClient.returnToPool();
-				} catch(Throwable e) {
-					logger.error(null, e);
-				}
-			}
-
-			super.destroy();
-		}
 
 		@Override
-		public void didReceiveMessage(MessageList<PooledByteBuffer> messages) {
-
+		public void didReceiveMessage(
+				ITcpReplyMessageHandler replyMessageHandler,
+				MessageList<? extends IByteBuff> msgs) {
 			try {
-				Iterator<PooledByteBuffer> iter = messages.iterator();
-				PooledByteBuffer msg;
+				Iterator<? extends IByteBuff> iter = msgs.iterator();
+				IByteBuff msg;
 				while(iter.hasNext()) {
 					msg = iter.next();
 
 					try {
-						handleReceiveMsg(msg);
+						didReceiveMessage(replyMessageHandler, msg);
 					} catch(Throwable e) {
 						logger.error(null, e);
 					}
@@ -254,38 +222,33 @@ public class TestTcpServer {
 			} catch(Throwable e) {
 				logger.error(null, e);
 			} finally {
-				try {
-					tcpClient.returnToPool();
-				} catch(Throwable e) {
-					logger.error(null, e);
-				}
+//				try {
+//					tcpClient.returnToPool();
+//				} catch(Throwable e) {
+//					logger.error(null, e);
+//				}
 			}
 		}
 
 		@Override
-		public void didReceiveMessage(PooledByteBuffer msg) {
-			PooledSyncTcpClient tcpClient = _tcpClientPool.borrowObject();
-
+		public void didReceiveMessage(
+				ITcpReplyMessageHandler replyMessageHandler, IByteBuff msg) {
 			try {
-				handleReceiveMsg(msg);
+				//send command ------------------------------------
+				msg.getByteBuffer().flip();
+				tcpClient.send(msg.getByteBuffer().array(), 
+						msg.getByteBuffer().position(), msg.getByteBuffer().remaining());
+
+				//receive response ------------------------------------
+				receiveAndReply(replyMessageHandler);
 			} catch(Throwable e) {
 				logger.error(null, e);
-			} finally {
-				try {
-					tcpClient.returnToPool();
-				} catch(Throwable e) {
-					logger.error(null, e);
-				}
 			}
 		}
 		
-		private void handleReceiveMsg(ByteBuff msg) throws IOException, TcpException {
-			//send command ------------------------------------
-			msg.getByteBuffer().flip();
-			tcpClient.send(msg.getByteBuffer().array(), 
-					msg.getByteBuffer().position(), msg.getByteBuffer().remaining());
-
-			//receive response ------------------------------------
+		private void receiveAndReply(ITcpReplyMessageHandler replyMessageHandler) throws IOException {
+			IByteBuff msg = replyMessageHandler.createBuffer();
+			
 			msg.getByteBuffer().clear();
 			int receiveLen;
 			receiveLen = tcpClient.receive(
@@ -303,9 +266,12 @@ public class TestTcpServer {
 				
 				msg.getByteBuffer().position(0);
 				msg.getByteBuffer().limit(receiveLen);
-				sendMessage(msg.getByteBuffer());
+				
+				replyMessageHandler.sendMessage(msg);
 			}
 		}
+		
+
 	}
 	
 	/* I think async client is slower than sync client, so it not use any more

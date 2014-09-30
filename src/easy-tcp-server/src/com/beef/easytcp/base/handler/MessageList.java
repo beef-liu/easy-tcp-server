@@ -33,4 +33,11 @@ public class MessageList <T> implements Iterable<T> {
 		return _backList.iterator();
 	}
 	
+	public static <T> MessageList<T> wrap(T t) {
+		MessageList<T> msgList = new MessageList<T>();
+		msgList.add(t);
+		
+		return msgList;
+	}
+	
 }

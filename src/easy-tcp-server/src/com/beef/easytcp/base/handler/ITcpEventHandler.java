@@ -18,10 +18,4 @@ public interface ITcpEventHandler extends ITcpReadEventHandler {
 	 */
 	public void didDisconnect();
 	
-	/**
-	 * Event of message which sent by remote peer was received 
-	 * @param msg
-	 */
-	public void didReceiveMessage(ITcpReplyMessageHandler replyMessageHandler, IByteBuff msg);
-	
 }

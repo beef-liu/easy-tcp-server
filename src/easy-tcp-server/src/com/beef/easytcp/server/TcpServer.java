@@ -17,15 +17,20 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
 
+import com.beef.easytcp.base.IByteBuff;
 import com.beef.easytcp.base.SocketChannelUtil;
 import com.beef.easytcp.base.buffer.ByteBufferPool;
-import com.beef.easytcp.base.buffer.ByteBufferPoolFactory;
 import com.beef.easytcp.base.buffer.PooledByteBuffer;
-import com.beef.easytcp.base.handler.AbstractTcpEventHandler;
+import com.beef.easytcp.base.handler.ITcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
+import com.beef.easytcp.base.handler.ITcpReplyMessageHandler;
 import com.beef.easytcp.base.handler.MessageList;
 import com.beef.easytcp.base.handler.TcpReadEvent;
+import com.beef.easytcp.base.handler.TcpSession;
 import com.beef.easytcp.base.handler.TcpWriteEvent;
+import com.beef.easytcp.base.handler.TcpWriteEventThread;
+import com.beef.easytcp.base.thread.ITaskLoopThreadFactory;
+import com.beef.easytcp.base.thread.TaskLoopThread;
 import com.beef.easytcp.base.thread.pool.LoopTaskThreadFixedPool;
 
 /**
@@ -56,15 +61,15 @@ public class TcpServer implements IServer {
 	protected ServerSocketChannel _serverSocketChannel = null;
 	protected Selector _serverSelector = null;
 	protected Selector[] _readSelectors = null;
-	protected Selector[] _writeSelectors = null;
-	protected Selector _writeSelector = null;
+	//protected Selector[] _writeSelectors = null;
+	//protected Selector _writeSelector = null;
+	protected LoopTaskThreadFixedPool<TcpWriteEvent> _writeEventThreadPool = null;
 	
 	protected ByteBufferPool _bufferPool;
 	protected ITcpEventHandlerFactory _eventHandlerFactory;
 	
 	protected ExecutorService _serverThreadPool;
-	protected LoopTaskThreadFixedPool<TcpReadEvent> _readEventHandlerThreadPool;
-	//protected LoopTaskThreadFixedPool<TcpWriteEvent> _writeEventHandlerThreadPool;
+	protected LoopTaskThreadFixedPool<TcpReadEvent> _readEventThreadPool;
 	
 	
 	
@@ -109,7 +114,13 @@ public class TcpServer implements IServer {
 	@Override
 	public void shutdown() {
 		try {
-			_readEventHandlerThreadPool.shutdown();
+			_readEventThreadPool.shutdown();
+		} catch(Throwable e) {
+			logger.error("shutdown()", e);
+		}
+		
+		try {
+			_writeEventThreadPool.shutdown();
 		} catch(Throwable e) {
 			logger.error("shutdown()", e);
 		}
@@ -140,6 +151,7 @@ public class TcpServer implements IServer {
 			}
 		}
 		
+		/*
 		for(int i = 0; i < _writeSelectors.length; i++) {
 			try {
 				closeSelector(_writeSelectors[i]);
@@ -147,13 +159,22 @@ public class TcpServer implements IServer {
 				logger.error("shutdown()", e);
 			}
 		}
-
+		*/
+		/*
 		try {
 			closeSelector(_writeSelector);
 		} catch(Throwable e) {
 			logger.error("shutdown()", e);
 		}
-		
+		*/
+		Iterator<TaskLoopThread<TcpWriteEvent>> iterWriteEventThread = _writeEventThreadPool.getAllThreads();
+		while(iterWriteEventThread.hasNext()) {
+			try {
+				closeSelector(((TcpWriteEventThread) iterWriteEventThread.next()).getWriteSelector());
+			} catch(Throwable e) {
+				logger.error("shutdown()", e);
+			}
+		}
 		
 		logger.info("Tcp Server shutted down <<<<<<<<<<<<<<<<<<<<<<<<<<<<");
 	}
@@ -163,8 +184,8 @@ public class TcpServer implements IServer {
 		{
 			//init bytebuffer pool -----------------------------
 			int bufferByteSize = _tcpServerConfig.getSocketReceiveBufferSize();
-			ByteBufferPoolFactory byteBufferPoolFactory = new ByteBufferPoolFactory(
-					_isAllocateDirect, bufferByteSize);
+//			ByteBufferPoolFactory byteBufferPoolFactory = new ByteBufferPoolFactory(
+//					_isAllocateDirect, bufferByteSize);
 			
 			GenericObjectPoolConfig byteBufferPoolConfig = new GenericObjectPoolConfig();
 			byteBufferPoolConfig.setMaxIdle(_tcpServerConfig.getConnectMaxCount());
@@ -172,7 +193,7 @@ public class TcpServer implements IServer {
 			byteBufferPoolConfig.setMaxActive(_PoolMaxActive);
 			byteBufferPoolConfig.setMaxWait(_PoolMaxWait);
 			*/
-			byteBufferPoolConfig.setMaxTotal(_tcpServerConfig.getConnectMaxCount());
+			byteBufferPoolConfig.setMaxTotal(_tcpServerConfig.getConnectMaxCount() * 2);
 			byteBufferPoolConfig.setMaxWaitMillis(10);
 			
 			//byteBufferPoolConfig.setSoftMinEvictableIdleTimeMillis(_softMinEvictableIdleTimeMillis);
@@ -207,7 +228,7 @@ public class TcpServer implements IServer {
 			}
 			{
 				int threadCount = _tcpServerConfig.getReadEventThreadCount();
-				_readEventHandlerThreadPool = new LoopTaskThreadFixedPool<TcpReadEvent>(
+				_readEventThreadPool = new LoopTaskThreadFixedPool<TcpReadEvent>(
 						threadCount);
 			}
 
@@ -228,11 +249,30 @@ public class TcpServer implements IServer {
 				_serverThreadPool.execute(new ReadThread(i));
 			}
 			
+			/*
 			_writeSelectors = new Selector[ioSelectorCount]; 
 			for(int i = 0; i < _writeSelectors.length; i++) {
 				_writeSelectors[i] = Selector.open();
 				_serverThreadPool.execute(new WriteThread(i));
 			}
+			*/
+			_writeEventThreadPool = new LoopTaskThreadFixedPool<TcpWriteEvent>(
+					_tcpServerConfig.getWriteEventThreadCount(), new ITaskLoopThreadFactory<TcpWriteEvent>() {
+
+						@Override
+						public TaskLoopThread<TcpWriteEvent> createThread() {
+							Selector writeSelector;
+							try {
+								writeSelector = Selector.open();
+							} catch (IOException e) {
+								logger.error(null, e);
+								throw new RuntimeException(e);
+							}
+							
+							return (TaskLoopThread<TcpWriteEvent>) (new TcpWriteEventThread(writeSelector));
+						}
+					});
+			
 			//_writeSelector = Selector.open();
 			
 			
@@ -286,7 +326,30 @@ public class TcpServer implements IServer {
 		Accepted,
 		NotAcceptedForNoClientConnect,
 		NotAcceptedForReachingMaxConnection, 
-		NotAcceptedForError};
+		NotAcceptedForError
+	};
+	
+	protected class ReplyMsgHandler implements ITcpReplyMessageHandler {
+		private int _sessionId;
+		private SelectionKey _writeKey;
+		
+		public ReplyMsgHandler(int sessionId, SelectionKey writeKey) {
+			_sessionId = sessionId;
+			_writeKey = writeKey;
+		}
+		
+		@Override
+		public void sendMessage(IByteBuff msg) {
+			_writeEventThreadPool.execute(new TcpWriteEvent(_sessionId, _writeKey, msg));
+		}
+
+		@Override
+		public IByteBuff createBuffer() {
+			return _bufferPool.borrowObject();
+		}
+		
+	}
+		
 	/**
 	 * 
 	 * @param key
@@ -333,24 +396,26 @@ public class TcpServer implements IServer {
 						SelectionKey.OP_WRITE, 
 						sessionObj);
 				*/
-				_writeSelector.wakeup();
+
+				int sessionId = _sessionIdSeed.incrementAndGet();
+				TcpWriteEventThread writeEventThread = (TcpWriteEventThread) _writeEventThreadPool.getThreadOfGroup(sessionId);
+				writeEventThread.getWriteSelector().wakeup();
+				//_writeSelector.wakeup();
 				SelectionKey writeKey = socketChannel.register(
-						_writeSelector, 
+						writeEventThread.getWriteSelector(), 
 						SelectionKey.OP_WRITE
 						);
-				final AbstractTcpEventHandler<PooledByteBuffer> eventHandler = 
-						_eventHandlerFactory.createHandler(
-								_sessionIdSeed.incrementAndGet(), 
-								//readKey, 
-								writeKey);
-				writeKey.attach(eventHandler);
+				final ITcpEventHandler eventHandler = _eventHandlerFactory.createHandler(sessionId);
+				TcpSession tcpSession = new TcpSession(sessionId, writeKey, eventHandler, new ReplyMsgHandler(sessionId, writeKey));
+				writeKey.attach(tcpSession);
 
+				
 				_readSelectors[clientSelectorIndex].wakeup();
 				SelectionKey readKey = socketChannel.register(
 						_readSelectors[clientSelectorIndex], 
 						SelectionKey.OP_READ 
 						//| SelectionKey.OP_WRITE
-						, eventHandler
+						, tcpSession
 						);
 
 				/*
@@ -365,7 +430,7 @@ public class TcpServer implements IServer {
 				//notify event
 				int socketCnt = _connecttingSocketCount.incrementAndGet();
 				//logger.debug("_connecttingSocketCount(incre):" + socketCnt);
-				eventHandler.didConnect();
+				eventHandler.didConnect(tcpSession.getReplyMsgHandler(), socketChannel.socket().getRemoteSocketAddress());
 				
 				return AcceptResult.Accepted;
 			} catch (Throwable e) {
@@ -488,12 +553,13 @@ public class TcpServer implements IServer {
 				
 				if(messages.size() > 0) {
 					//fire event
-					final AbstractTcpEventHandler<PooledByteBuffer> eventHandler =
-							(AbstractTcpEventHandler<PooledByteBuffer>) key.attachment();
+					final TcpSession tcpSession = (TcpSession) key.attachment();
+					final ITcpEventHandler eventHandler = tcpSession.getEventHandler();
+					
 					//if(_isSyncInvokeDidReceivedMsg) 
 					{
 						try {
-							eventHandler.didReceiveMessage(messages);
+							_readEventThreadPool.execute(new TcpReadEvent(tcpSession.getSessionId(), eventHandler, tcpSession.getReplyMsgHandler(), messages));
 						} catch(Throwable e) {
 							logger.error(null, e);
 						} 
@@ -543,54 +609,6 @@ public class TcpServer implements IServer {
 		}
 	}
 
-	protected class WriteThread extends Thread {
-		private int _selectorIndex;
-		
-		public WriteThread(int selectorIndex) {
-			_selectorIndex = selectorIndex;
-		}
-
-		@Override
-		public void run() {
-			while(true) {
-				try {
-					//logger.debug("WriteThread[" + _selectorIndex + "] >>>>>>>>>>>>>>");
-					if(_writeSelectors[_selectorIndex].select() != 0) {
-						Set<SelectionKey> keySet = _writeSelectors[_selectorIndex].selectedKeys();
-						
-						for(SelectionKey key : keySet) {
-							try {
-								if(!key.isValid()) {
-									continue;
-								}
-
-								if(key.isWritable()) {
-									handleWrite(key);
-								}
-							} catch(CancelledKeyException e) {
-								logger.debug("IOThread key canceled");
-							} catch(Exception e) {
-								logger.error("IOThread error", e);
-							}
-						}
-						
-						keySet.clear();
-					}
-
-					//logger.debug("WriteThread[" + _selectorIndex + "] <<<<<<<<<<<<<");
-				} catch(Throwable e) {
-					logger.error("IOThread error", e);
-				} finally {
-//					try {
-//						Thread.sleep(SLEEP_PERIOD);
-//					} catch(InterruptedException e) {
-//						logger.info("IOThread InterruptedException -----");
-//						break;
-//					}
-				}
-			}
-		}	
-	}
 	/*
 	protected class WriteThread extends Thread {
 		private int _selectorIndex;
@@ -694,8 +712,9 @@ public class TcpServer implements IServer {
 	protected void clearSelectionKey(SelectionKey selectionKey) {
 		if(SocketChannelUtil.clearSelectionKey(selectionKey)) {
 			if(selectionKey.attachment() != null) {
-				final AbstractTcpEventHandler eventHandler =
-						(AbstractTcpEventHandler) selectionKey.attachment();
+				final TcpSession tcpSession = (TcpSession) selectionKey.attachment();
+				final ITcpEventHandler eventHandler = 
+						tcpSession.getEventHandler();
 				try {
 					eventHandler.didDisconnect();
 				} catch(Throwable e) {
@@ -717,17 +736,20 @@ public class TcpServer implements IServer {
 					}
 					*/
 					try {
-						if(eventHandler.getWriteKey() != null) {
-							SocketChannelUtil.clearSelectionKey(eventHandler.getWriteKey());
+						if(tcpSession.getWriteKey() != null) {
+							SocketChannelUtil.clearSelectionKey(tcpSession.getWriteKey());
 						}
 					} catch(Throwable e) {
 						logger.error(null, e);
 					}
+					
+					/*
 					try {
 						eventHandler.destroy();
 					} catch(Throwable e) {
 						logger.error(null, e);
 					}
+					*/
 				}
 			}
 		}

@@ -2,7 +2,6 @@ package com.beef.easytcp.client;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 import java.nio.channels.CancelledKeyException;
 import java.nio.channels.ClosedSelectorException;
 import java.nio.channels.SelectionKey;
@@ -12,15 +11,22 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import org.apache.log4j.pattern.LogEvent;
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 
 import com.beef.easytcp.base.ByteBuff;
+import com.beef.easytcp.base.IByteBuff;
 import com.beef.easytcp.base.SocketChannelUtil;
+import com.beef.easytcp.base.buffer.ByteBufferPool;
+import com.beef.easytcp.base.buffer.ByteBufferPoolFactory;
 import com.beef.easytcp.base.buffer.PooledByteBuffer;
-import com.beef.easytcp.base.handler.AbstractTcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
+import com.beef.easytcp.base.handler.ITcpReplyMessageHandler;
 import com.beef.easytcp.base.handler.MessageList;
+import com.beef.easytcp.base.handler.TcpReadEvent;
+import com.beef.easytcp.base.handler.TcpWriteEvent;
+import com.beef.easytcp.base.handler.TcpWriteEventThread;
+import com.beef.easytcp.base.thread.TaskLoopThread;
 import com.beef.easytcp.server.TcpException;
 
 public class AsyncTcpClient implements ITcpClient {
@@ -44,12 +50,15 @@ public class AsyncTcpClient implements ITcpClient {
 	protected ITcpEventHandlerFactory _eventHandlerFactory;
 	protected volatile ITcpEventHandler _eventHandler;
 	
-	protected ByteBuff _byteBuff;
+//	protected ByteBuff _byteBuffForRead;
+//	protected ByteBuff _byteBuffForWrite;
+	protected ByteBufferPool _bufferPool;
 	
 	protected int _sessionId;
 	
 	protected ExecutorService _ioThreadPool;
-	
+	protected TaskLoopThread<TcpReadEvent> _readEventThread;
+	protected TcpWriteEventThread _writeEventThread;
 	
 	/**
 	 * 
@@ -57,13 +66,26 @@ public class AsyncTcpClient implements ITcpClient {
 	 * @param port
 	 * @param connectTimeout in millisecond
 	 */
-	public AsyncTcpClient(TcpClientConfig tcpConfig, int sessionId, 
-			ITcpEventHandlerFactory eventHandlerFactory) {
+	public AsyncTcpClient(
+			TcpClientConfig tcpConfig, int sessionId, 
+			ITcpEventHandlerFactory eventHandlerFactory,
+			int byteBufferPoolSize
+			) {
 		_sessionId = sessionId;
 		_config = tcpConfig;
 		_eventHandlerFactory = eventHandlerFactory;
 		
-		_byteBuff = new ByteBuff(false, _config.getReceiveBufferSize());
+//		_byteBuffForRead = new ByteBuff(false, _config.getReceiveBufferSize());
+//		_byteBuffForWrite = new ByteBuff(false, _config.getReceiveBufferSize());
+		boolean isAllocateDirect = false;
+		GenericObjectPoolConfig byteBufferPoolConfig = new GenericObjectPoolConfig();
+		byteBufferPoolConfig.setMaxIdle(byteBufferPoolSize);
+		byteBufferPoolConfig.setMaxTotal(byteBufferPoolSize);
+		byteBufferPoolConfig.setMaxWaitMillis(10);
+		
+		_bufferPool = new ByteBufferPool(
+				byteBufferPoolConfig, isAllocateDirect, _config.getReceiveBufferSize()); 
+		
 	}
 	
 	public ITcpEventHandler getEventHandler() {
@@ -100,6 +122,12 @@ public class AsyncTcpClient implements ITcpClient {
 		//create io selector ----------------------
 		_readSelector = Selector.open();
 		_writeSelector = Selector.open();
+		
+		_readEventThread = new TaskLoopThread<TcpReadEvent>();
+		_readEventThread.start();
+		
+		_writeEventThread = new TcpWriteEventThread(_writeSelector);
+		_writeEventThread.start();
 		
 		//connect ------------------------------
 		_connectBeginTime = System.currentTimeMillis();
@@ -190,14 +218,11 @@ public class AsyncTcpClient implements ITcpClient {
 				
 
 				//event handler -------------------------
-				_eventHandler = _eventHandlerFactory.createHandler(
-						_sessionId, 
-						//_readKey, 
-						_writeKey);
+				_eventHandler = _eventHandlerFactory.createHandler(_sessionId);
 				//_workSelectionKey.attach(_eventHandler);
 				
 				_connected = true;
-				_eventHandler.didConnect();
+				_eventHandler.didConnect(_replyMsgHandler, _socketChannel.socket().getRemoteSocketAddress());
 			} else {
 				_connected = false;
 			}
@@ -206,6 +231,20 @@ public class AsyncTcpClient implements ITcpClient {
 			disconnect();
 		}
 	}
+	
+	protected ITcpReplyMessageHandler _replyMsgHandler = new ITcpReplyMessageHandler() {
+		
+		@Override
+		public void sendMessage(IByteBuff msg) {
+			_writeEventThread.addTask(new TcpWriteEvent(_sessionId, _writeKey, msg));
+		}
+
+		@Override
+		public IByteBuff createBuffer() {
+			return _bufferPool.borrowObject();
+		}
+		
+	};
 	
 	protected class ReadThread implements Runnable {
 		@Override
@@ -260,12 +299,15 @@ public class AsyncTcpClient implements ITcpClient {
 					return;
 				} else {
 					int readLen;
-					_byteBuff.getByteBuffer().clear();
-					readLen = socketChannel.read(_byteBuff.getByteBuffer());
+					
+					PooledByteBuffer buffer = _bufferPool.borrowObject();
+					
+					buffer.getByteBuffer().clear();
+					readLen = socketChannel.read(buffer.getByteBuffer());
 					
 					if(readLen > 0) {
 						if(_eventHandler != null) {
-							_eventHandler.didReceiveMessage(_byteBuff);
+							_readEventThread.addTask(new TcpReadEvent(_sessionId, _eventHandler, _replyMsgHandler, buffer));
 						}
 					} else if(readLen < 0) {
 						//mostly it is -1, and means server has disconnected
@@ -288,20 +330,11 @@ public class AsyncTcpClient implements ITcpClient {
 		}
 				
 	}
-	
-	protected class WriteThread implements Runnable {
 
-		@Override
-		public void run() {
-			// TODO Auto-generated method stub
-			
-		}
+	public void send(IByteBuff msg) throws TcpException {
+		_writeEventThread.addTask(new TcpWriteEvent(_sessionId, _writeKey, msg));
 	}
 	
-
-	public int send(ByteBuffer buffer) throws TcpException {
-		return _eventHandler.sendMessage(buffer);
-	}
 	/*
 	public int send(ByteBuffer buffer) throws IOException {
 		if(_workSelectionKey.isValid() 
@@ -326,6 +359,21 @@ public class AsyncTcpClient implements ITcpClient {
 	public void disconnect() {
 		try {
 			_ioThreadPool.shutdown();
+		} catch(Throwable e) {
+			logError(e);
+		}
+		try {
+			_readEventThread.shutdown();
+		} catch(Throwable e) {
+			logError(e);
+		}
+		try {
+			_writeEventThread.shutdown();
+		} catch(Throwable e) {
+			logError(e);
+		}
+		try {
+			_bufferPool.close();
 		} catch(Throwable e) {
 			logError(e);
 		}
@@ -396,11 +444,13 @@ public class AsyncTcpClient implements ITcpClient {
 				} catch(Throwable e) {
 					logError(e);
 				}
+				/*
 				try {
 					_eventHandler.destroy();
 				} catch(Throwable e) {
 					logError(e);
 				}
+				*/
 			}
 		}
 	}

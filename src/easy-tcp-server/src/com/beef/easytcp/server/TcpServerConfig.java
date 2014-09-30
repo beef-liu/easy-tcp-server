@@ -17,6 +17,8 @@ public class TcpServerConfig {
 	
 	private int readEventThreadCount = 4;
 		
+	private int writeEventThreadCount = 4;
+	
 	//64kb
 	private int socketReceiveBufferSize = 65536;
 	
@@ -100,6 +102,14 @@ public class TcpServerConfig {
 
 	public void setReadEventThreadCount(int readEventThreadCount) {
 		this.readEventThreadCount = readEventThreadCount;
+	}
+
+	public int getWriteEventThreadCount() {
+		return writeEventThreadCount;
+	}
+
+	public void setWriteEventThreadCount(int writeEventThreadCount) {
+		this.writeEventThreadCount = writeEventThreadCount;
 	}
 
 
