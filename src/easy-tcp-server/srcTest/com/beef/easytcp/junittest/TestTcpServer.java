@@ -37,7 +37,8 @@ public class TestTcpServer {
 	public static void main(String[] args) {
 		int maxConnection = 10000;
 		int ioThreadCount = 4;
-		int workThreadCount = 32;
+		int readEventThreadCount = 16;
+		//int writeEventThreadCount = ioThreadCount;
 		boolean isSyncInvokeDidReceivedMsg = false;
 		String hostRedirectTo = "127.0.0.1";
 		int portRedirectTo = 6379;
@@ -47,7 +48,7 @@ public class TestTcpServer {
 				int i = 0;
 				maxConnection = Integer.parseInt(args[i++]);
 				ioThreadCount = Integer.parseInt(args[i++]);
-				workThreadCount = Integer.parseInt(args[i++]);
+				readEventThreadCount = Integer.parseInt(args[i++]);
 				
 				if(args[i++].equals("true")) {
 					isSyncInvokeDidReceivedMsg = true;
@@ -63,7 +64,7 @@ public class TestTcpServer {
 		}
 		System.out.println("MaxThread:" + maxConnection
 				+ " ioThreadCount:" + ioThreadCount
-				+ " workThreadCount:" + workThreadCount
+				+ " readEventThreadCount:" + readEventThreadCount
 				+ " isSyncInvokeDidReceivedMsg:" + isSyncInvokeDidReceivedMsg
 				+ " hostRedirectTo:" + hostRedirectTo
 				+ " portRedirectTo:" + portRedirectTo 
@@ -71,13 +72,13 @@ public class TestTcpServer {
 		
 		TestTcpServer test = new TestTcpServer();
 		test.startServer(
-				maxConnection, ioThreadCount, workThreadCount, 
+				maxConnection, ioThreadCount, readEventThreadCount, 
 				isSyncInvokeDidReceivedMsg,
 				hostRedirectTo, portRedirectTo);
 	}
 	
 	public void startServer(
-			int maxConnection, int ioThreadCount, int workThreadCount, 
+			int maxConnection, int ioThreadCount, int readEventThreadCount, 
 			boolean isSyncInvokeDidReceivedMsg,
 			String hostRedirectTo, int portRedirectTo) {
 		try {
@@ -94,8 +95,8 @@ public class TestTcpServer {
 			serverConfig.setSocketIOThreadCount(ioThreadCount);
 			serverConfig.setSocketReceiveBufferSize(SocketReceiveBufferSize);
 			serverConfig.setSocketSendBufferSize(SocketReceiveBufferSize);
-			serverConfig.setReadEventThreadCount(workThreadCount);
-			serverConfig.setWriteEventThreadCount(workThreadCount);
+			serverConfig.setReadEventThreadCount(readEventThreadCount);
+			serverConfig.setWriteEventThreadCount(ioThreadCount);
 			
 			boolean isAllocateDirect = false;
 			

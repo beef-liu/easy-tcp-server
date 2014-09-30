@@ -34,17 +34,22 @@ import com.beef.easytcp.base.thread.TaskLoopThread;
 import com.beef.easytcp.base.thread.pool.LoopTaskThreadFixedPool;
 
 /**
- * The work flow (Suppose that there is 4 CPU core):
+ * The work flow:
  * listener thread   * 1: do accept()
- * IO thread         * 4: do channel.read() and channel.write(). Read request bytes into ChannelByteBuffer.getReadBuffer(), and set into SelectionKey.attachment().
- * dispatcher thread * 1: dispatch request(SelectionKey) to worker threads
- * worker thread     * N: consume the request data, and write response bytes into ChannelByteBuffer.getWriteBuffer().
+ * Read thread       * r: do channel.read() to read request as a readEvent add to ReadEventThreadPool.
+ * Write thread      * w: do channel.write() to write reply to remote peer.
+ * ReadEventThread   * N: ReadEventThread are pooled. The pool reuses cached threads to handle request data, and handle event sequentially for one connection 
  * 
  * ---------------------------------------------------------------------
- * In this work flow of threads, there are features below: 
- * 1. Listener, IO, dispatcher threads are never blocked.
- * 2. Number of worker threads is depend on what kind of work is. 
- * 	For example, if each worker will operate DB and max active connection of DB pool is 256, then N = 256 is a reasonable number.    
+ * In this work flow of threads, there are features below:
+ * 1. Suppose that there is 4 CPU core, then setting r and w with 4 is reasonable, I think.  
+ * 2. Easy to support massive connections, for example more than 10000. Because there is small number of threads, not the case that 10000 threads for 10000 connection. 
+ * 3. You should set number of read event threads depend on what kind of business is. 
+ *    And actually this number only can be power of 2, even you assigned a number which is not a power of 2, but pool size will be power(2, (int)(log(N) / log(2)))
+ *    pool size made to power of 2 is for faster to choose thread. 
+ *    ---------------------
+ *    For example, if there is many IO operations in handling request, then you need more threads(16?, 32?, 64?). 
+ * 	  For example, if each handling will operate DB and average time cost 10 ms, and you hope to support 10000 connection, then N = 128 is a reasonable number.    
  * 
  * ---------------------------------------------------------------------
  * 
@@ -485,7 +490,7 @@ public class TcpServer implements IServer {
 				} catch(Throwable e) {
 					logger.error("IOThread error", e);
 				} finally {
-					//Read Key.select() will block until data arrive, so no need to sleep
+					//I don't know why Key.select() will wait forever if not sleep a while;
 					try {
 						Thread.sleep(SLEEP_PERIOD);
 					} catch(InterruptedException e) {

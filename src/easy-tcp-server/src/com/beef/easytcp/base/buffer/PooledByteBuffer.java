@@ -27,8 +27,13 @@ public class PooledByteBuffer extends ByteBuff implements IPooledObject {
 
 	@Override
 	public void returnToPool() {
-		_backPool.returnObject(this);
-		_backPool = null;
+		synchronized (this) {
+			if(_backPool != null) {
+				final IPool<PooledByteBuffer> pool = _backPool; 
+				_backPool = null;
+				pool.returnObject(this);
+			}
+		}
 	}
 	
 	@Override
@@ -42,12 +47,7 @@ public class PooledByteBuffer extends ByteBuff implements IPooledObject {
 
 	@Override
 	public void destroy() {
-		synchronized (this) {
-			if(_backPool != null) {
-				_backPool.returnObject(this);
-				_backPool = null;
-			}
-		}
+		returnToPool();
 	}
 	
 }
