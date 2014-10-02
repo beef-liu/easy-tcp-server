@@ -38,7 +38,7 @@ public class TestTcpServer {
 	private SyncTcpClientPool _tcpClientPool;
 	private AsyncTcpClientPool _asyncTcpClientPool;
 	
-	protected static int SocketReceiveBufferSize = 1024 * 32;
+	protected static int SocketReceiveBufferSize = 1024 * 8;
 	
 	public static void main(String[] args) {
 		int maxConnection = 10000;
@@ -108,7 +108,7 @@ public class TestTcpServer {
 			tcpClientConfig.setHost(hostRedirectTo);
 			tcpClientConfig.setPort(portRedirectTo);
 			tcpClientConfig.setConnectTimeoutMS(1000);
-			tcpClientConfig.setSoTimeoutMS(100);
+			tcpClientConfig.setSoTimeoutMS(1000);
 			tcpClientConfig.setReceiveBufferSize(SocketReceiveBufferSize);
 			tcpClientConfig.setSendBufferSize(SocketReceiveBufferSize);
 
@@ -123,6 +123,7 @@ public class TestTcpServer {
 			_asyncTcpClientPool = new AsyncTcpClientPool(tcpClientPoolConfig, tcpClientConfig, 4);
 			//final TcpServerEventHandlerPool handlerPool = new TcpServerEventHandlerPool();
 			
+			/*
 			TcpServer server = new TcpServer(
 					serverConfig, isAllocateDirect, 
 					new ITcpEventHandlerFactory() {
@@ -134,7 +135,8 @@ public class TestTcpServer {
 						}
 					}
 					);
-			/*
+			*/
+
 			TcpServer server = new TcpServer(
 					serverConfig, isAllocateDirect, 
 					new ITcpEventHandlerFactory() {
@@ -146,7 +148,6 @@ public class TestTcpServer {
 					}
 					//isSyncInvokeDidReceivedMsg
 					);
-			*/
 			
 			server.start();
 			System.out.println("Start server -------------");
@@ -232,11 +233,6 @@ public class TestTcpServer {
 			} catch(Throwable e) {
 				logger.error(null, e);
 			} finally {
-//				try {
-//					tcpClient.returnToPool();
-//				} catch(Throwable e) {
-//					logger.error(null, e);
-//				}
 			}
 		}
 
@@ -265,24 +261,54 @@ public class TestTcpServer {
 		
 		private void receiveAndReply(ITcpReplyMessageHandler replyMessageHandler, IByteBuff requestMsg, int msgLen) throws IOException {
 			IByteBuff msg = replyMessageHandler.createBuffer();
-			
 			msg.getByteBuffer().clear();
-			int rcvTotalLen;
-			try {
-				rcvTotalLen = tcpClient.receive(
-						msg.getByteBuffer().array(), 0, msg.getByteBuffer().limit());
-			} catch(SocketTimeoutException e) {
+			
+			int rcvTotalLen = 0;
+			int rcvLen = 0;
+			
+			/*
+			//redis protocol
+			{
+				try {
+					rcvLen = tcpClient.receive(
+							msg.getByteBuffer().array(), 0, msg.getByteBuffer().limit());
+				} catch(SocketTimeoutException e) {
+					msg.destroy();
+					return;
+				}
+				
+				if(rcvLen <= 0) {
+					msg.destroy();
+					return;
+				}
+				
+				byte b = msg.getByteBuffer().array()[0];
+				if(b == '-') {
+					
+				} else if (b == '*') {
+					
+				} else if (b == ':') {
+				} else if (b == '$') {
+				} else if (b == '+') {
+				} else {
+					logger.error("Unknown reply: " + (char)b);
+					rcvTotalLen = 0;
+				}
+			}
+			
+			if(rcvTotalLen == 0) {
 				msg.destroy();
 				return;
 			}
+			*/
+			
 			
 			//int receiveLen = tcpClient.receiveUntilFillUpBufferOrEnd(msg.getByteBuffer().array(), 0, msg.getByteBuffer().limit());
 			
-			/*
-			int rcvTotalLen = 0;
-			int rcvLen;
+			// Version 2
 			int position = 0;
 			int remaining = msg.getByteBuffer().limit();
+
 			tcpClient.connect();
 			while(true) {
 	    		try {
@@ -290,6 +316,7 @@ public class TestTcpServer {
 							msg.getByteBuffer().array(), position, remaining);
 	    		} catch(SocketTimeoutException e) {
 	    			//nothing to read
+	    			logger.warn("TcpClient SocketTimeoutException");
 	    			break;
 	    		}
 	    		
@@ -310,8 +337,37 @@ public class TestTcpServer {
 	    			}
 	    		}
 			}
-			*/
+
+			/*
+    		try {
+				rcvLen = tcpClient.getSocket().getInputStream().read(
+						msg.getByteBuffer().array(), position, remaining);
+				if(rcvLen > 0) {
+					rcvTotalLen += rcvLen;
+				}
+    		} catch(SocketTimeoutException e) {
+    			//nothing to read
+    			logger.warn("TcpClient SocketTimeoutException");
+    		}
+    		*/
+			if(rcvTotalLen > 0) {
+				msg.getByteBuffer().position(0);
+				msg.getByteBuffer().limit(rcvTotalLen);
+				replyMessageHandler.sendMessage(msg);
+			} else {
+				msg.destroy();
+				return;
+			}
 			
+			//Version 1 ----------------
+			/* 
+			try {
+				rcvTotalLen = tcpClient.receive(
+						msg.getByteBuffer().array(), 0, msg.getByteBuffer().limit());
+			} catch(SocketTimeoutException e) {
+				msg.destroy();
+				return;
+			}
 			if(rcvTotalLen > 0) {
 				msg.getByteBuffer().position(0);
 				msg.getByteBuffer().limit(rcvTotalLen);
@@ -330,22 +386,21 @@ public class TestTcpServer {
 					_remainingMsgs.add(msg);
 				}
 				
-				/*
-				if(msg.getByteBuffer().array()[0] == '\r') {
-					System.out.println("didReceivedMsg() reply starts with '\\r'."
-							+ " rcvTotalLen:" + rcvTotalLen
-							+ " request:" + new String(requestMsg.getByteBuffer().array(), 0, msgLen)
-							+ " response:" + new String(msg.getByteBuffer().array(), 0, rcvTotalLen));
-				} else if(msg.getByteBuffer().array()[rcvTotalLen - 2] != '\r'
-						|| msg.getByteBuffer().array()[rcvTotalLen - 1] != '\n') {
-					System.out.println("didReceivedMsg() reply not ends with '\\r\\n'."
-							+ " rcvTotalLen:" + rcvTotalLen
-							+ " request:" + new String(requestMsg.getByteBuffer().array(), 0, msgLen)
-							+ " response:" + new String(msg.getByteBuffer().array(), 0, rcvTotalLen));
-				}
-				*/
+//				if(msg.getByteBuffer().array()[0] == '\r') {
+//					System.out.println("didReceivedMsg() reply starts with '\\r'."
+//							+ " rcvTotalLen:" + rcvTotalLen
+//							+ " request:" + new String(requestMsg.getByteBuffer().array(), 0, msgLen)
+//							+ " response:" + new String(msg.getByteBuffer().array(), 0, rcvTotalLen));
+//				} else if(msg.getByteBuffer().array()[rcvTotalLen - 2] != '\r'
+//						|| msg.getByteBuffer().array()[rcvTotalLen - 1] != '\n') {
+//					System.out.println("didReceivedMsg() reply not ends with '\\r\\n'."
+//							+ " rcvTotalLen:" + rcvTotalLen
+//							+ " request:" + new String(requestMsg.getByteBuffer().array(), 0, msgLen)
+//							+ " response:" + new String(msg.getByteBuffer().array(), 0, rcvTotalLen));
+//				}
 				
 			}
+			*/
 		}
 
 	}
@@ -362,6 +417,7 @@ public class TestTcpServer {
 		}
 	}
 	
+	/*
 	//I think async client is slower and more complex than sync client, so it not use any more
 	private class TcpServerEventHandlerByAsyncClient implements ITcpEventHandler {
 		private PooledAsyncTcpClient tcpClient;
@@ -482,5 +538,6 @@ public class TestTcpServer {
 			
 		}
 	}
+	*/
 
 }

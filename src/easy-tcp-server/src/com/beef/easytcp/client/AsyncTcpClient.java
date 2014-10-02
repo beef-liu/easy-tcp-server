@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.CancelledKeyException;
 import java.nio.channels.ClosedSelectorException;
+import java.nio.channels.NoConnectionPendingException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
@@ -222,10 +223,16 @@ public class AsyncTcpClient implements ITcpClient {
 
 	protected void finishConnect() {
 		try {
-			final boolean connected = _socketChannel.finishConnect();
-			logInfo("AsyncTcpClient connected");
+			boolean connected = false;
+			try {
+				connected = _socketChannel.finishConnect();
+			} catch (NoConnectionPendingException e) {
+				connected = isRealConnected();
+			}
 			
 			if(connected) {
+				logInfo("AsyncTcpClient connected");
+				
 				//io selectionKeys ------------------------------
 				_readSelector.wakeup();
 				_readKey = _socketChannel.register(
