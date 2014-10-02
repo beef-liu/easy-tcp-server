@@ -47,14 +47,14 @@ public class AsyncTcpClient implements ITcpClient {
 	protected volatile long _connectBeginTime;
 	protected volatile boolean _connected = false;
 	
-	protected ITcpEventHandlerFactory _eventHandlerFactory;
+	//protected ITcpEventHandlerFactory _eventHandlerFactory;
 	protected volatile ITcpEventHandler _eventHandler;
 	
 //	protected ByteBuff _byteBuffForRead;
 //	protected ByteBuff _byteBuffForWrite;
 	protected ByteBufferPool _bufferPool;
 	
-	protected int _sessionId;
+	protected int _sessionId = 0;
 	
 	protected ExecutorService _ioThreadPool;
 	protected TaskLoopThread<TcpReadEvent> _readEventThread;
@@ -67,13 +67,14 @@ public class AsyncTcpClient implements ITcpClient {
 	 * @param connectTimeout in millisecond
 	 */
 	public AsyncTcpClient(
-			TcpClientConfig tcpConfig, int sessionId, 
-			ITcpEventHandlerFactory eventHandlerFactory,
+			TcpClientConfig tcpConfig, 
+			//int sessionId, 
+			//ITcpEventHandlerFactory eventHandlerFactory,
 			int byteBufferPoolSize
 			) {
-		_sessionId = sessionId;
+		//_sessionId = sessionId;
 		_config = tcpConfig;
-		_eventHandlerFactory = eventHandlerFactory;
+		//_eventHandlerFactory = eventHandlerFactory;
 		
 //		_byteBuffForRead = new ByteBuff(false, _config.getReceiveBufferSize());
 //		_byteBuffForWrite = new ByteBuff(false, _config.getReceiveBufferSize());
@@ -88,12 +89,20 @@ public class AsyncTcpClient implements ITcpClient {
 		
 	}
 	
+	public void setEventHandler(ITcpEventHandler eventHandler) {
+		_eventHandler = eventHandler;
+	}
+
 	public ITcpEventHandler getEventHandler() {
 		return _eventHandler;
 	}
 	
 	@Override
 	public void connect() throws IOException {
+		if(isConnected()) {
+			return;
+		}
+		
 		_connected = false;
 
 		//create socket
@@ -136,6 +145,22 @@ public class AsyncTcpClient implements ITcpClient {
 		if(connectReady) {
 			finishConnect();
 		}
+	}
+	
+	public boolean waitConnect(long timeout) {
+		int waitTime = 0;
+		while(waitTime <= timeout) {
+			if(_connected) {
+				break;
+			}
+			
+			try {
+				Thread.sleep(10);
+			} catch (InterruptedException e) {
+			}
+		}
+		
+		return _connected;
 	}
 	
 	protected class ConnectThread implements Runnable {
@@ -218,11 +243,13 @@ public class AsyncTcpClient implements ITcpClient {
 				
 
 				//event handler -------------------------
-				_eventHandler = _eventHandlerFactory.createHandler(_sessionId);
+				//_eventHandler = _eventHandlerFactory.createHandler(_sessionId);
 				//_workSelectionKey.attach(_eventHandler);
 				
 				_connected = true;
-				_eventHandler.didConnect(_replyMsgHandler, _socketChannel.socket().getRemoteSocketAddress());
+				if(_eventHandler != null) {
+					_eventHandler.didConnect(_replyMsgHandler, _socketChannel.socket().getRemoteSocketAddress());
+				}
 			} else {
 				_connected = false;
 			}
@@ -313,6 +340,8 @@ public class AsyncTcpClient implements ITcpClient {
 					if(readLen > 0) {
 						if(_eventHandler != null) {
 							_readEventThread.addTask(new TcpReadEvent(_sessionId, _eventHandler, _replyMsgHandler, buffer));
+						} else {
+							buffer.destroy();
 						}
 					} else if(readLen < 0) {
 						//mostly it is -1, and means server has disconnected
@@ -407,7 +436,8 @@ public class AsyncTcpClient implements ITcpClient {
 	}
 	
 	protected boolean isRealConnected() {
-		return _socketChannel.socket() != null 
+		return _socketChannel != null
+				&& _socketChannel.socket() != null 
 				&& _socketChannel.socket().isBound() 
 				&& !_socketChannel.socket().isClosed()
 				&& _socketChannel.socket().isConnected() 

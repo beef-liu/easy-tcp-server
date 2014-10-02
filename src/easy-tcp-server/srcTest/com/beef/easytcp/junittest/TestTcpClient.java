@@ -97,7 +97,8 @@ public class TestTcpClient {
 			}
 		};
 		
-		AsyncTcpClient client = new AsyncTcpClient(tcpConfig, 0, eventHandlerFactory, 64);
+		AsyncTcpClient client = new AsyncTcpClient(tcpConfig, 64);
+		client.setEventHandler(new MyTcpClinetEventHandler());
 
 		try {
 			client.connect();

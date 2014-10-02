@@ -33,7 +33,7 @@ public class SyncTcpClientPoolFactory implements PooledObjectFactory<PooledSyncT
 	@Override
 	public void passivateObject(PooledObject<PooledSyncTcpClient> obj)
 			throws Exception {
-		//do nothing
+		obj.getObject().getSocket().shutdownInput();
 	}
 
 	@Override

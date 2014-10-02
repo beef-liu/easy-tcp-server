@@ -52,6 +52,8 @@ public class TcpWriteEvent implements ITask {
 	@Override
 	public void run() {
 		try {
+			_writeKey.selector().select();
+			
 			SocketChannel socketChannel = (SocketChannel) _writeKey.channel();
 			
 			if(!SocketChannelUtil.isConnected(socketChannel.socket())) {
