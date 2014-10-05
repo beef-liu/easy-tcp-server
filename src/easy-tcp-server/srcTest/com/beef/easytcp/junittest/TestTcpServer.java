@@ -6,6 +6,7 @@ import java.net.SocketAddress;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.util.Iterator;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
@@ -35,8 +36,11 @@ public class TestTcpServer {
 
 	private final static Logger logger = Logger.getLogger(TestTcpServer.class);
 	
+	private AtomicLong _logSeq = new AtomicLong(0);
+	
 	private SyncTcpClientPool _tcpClientPool;
 	private AsyncTcpClientPool _asyncTcpClientPool;
+	private TcpServer _server;
 	
 	protected static int SocketReceiveBufferSize = 1024 * 8;
 	
@@ -46,7 +50,7 @@ public class TestTcpServer {
 		int readEventThreadCount = 32;
 		//int writeEventThreadCount = ioThreadCount;
 		//boolean isSyncInvokeDidReceivedMsg = false;
-		int serverBufferSizeKB = 32;
+		int serverBufferSizeKB = 16;
 		int SocketReceiveBufferSize = 1024 * serverBufferSizeKB;
 		String hostRedirectTo = "127.0.0.1";
 		int portRedirectTo = 6379;
@@ -123,21 +127,19 @@ public class TestTcpServer {
 			_asyncTcpClientPool = new AsyncTcpClientPool(tcpClientPoolConfig, tcpClientConfig, 4);
 			//final TcpServerEventHandlerPool handlerPool = new TcpServerEventHandlerPool();
 			
-			/*
-			TcpServer server = new TcpServer(
+			_server = new TcpServer(
 					serverConfig, isAllocateDirect, 
 					new ITcpEventHandlerFactory() {
 
 						@Override
 						public ITcpEventHandler createHandler(int sessionId) {
-							return (new TcpServerEventHandlerByAsyncClient(
-									tcpClientConfig));
+							return (new TcpServerEventHandlerByAsyncClient(tcpClientConfig));
 						}
 					}
 					);
-			*/
 
-			TcpServer server = new TcpServer(
+			/*
+			_server = new TcpServer(
 					serverConfig, isAllocateDirect, 
 					new ITcpEventHandlerFactory() {
 						
@@ -148,8 +150,9 @@ public class TestTcpServer {
 					}
 					//isSyncInvokeDidReceivedMsg
 					);
+			*/
 			
-			server.start();
+			_server.start();
 			System.out.println("Start server -------------");
 			
 			
@@ -169,9 +172,14 @@ public class TestTcpServer {
 		private MessageList<IByteBuff> _remainingMsgs = new MessageList<IByteBuff>();
 		
 		public TcpServerEventHandlerBySyncClient() {
+			final int curConnectionCount = _server.getCurrentConnectionCount();
+			//if((curConnectionCount % 50) == 0) 
+			{
+				logger.debug("Tcp Server connection count:" + curConnectionCount);
+			}
 			
 			//tcpClient = new SyncTcpClient(tcpConfig);
-			tcpClient = _tcpClientPool.borrowObject();
+			tcpClient = _tcpClientPool.borrowObject();			
 			
 			/*
 			try {
@@ -241,13 +249,15 @@ public class TestTcpServer {
 				ITcpReplyMessageHandler replyMessageHandler, IByteBuff msg) {
 			try {
 				//send command ------------------------------------
-				int msgLen = msg.getByteBuffer().remaining();
 				msg.getByteBuffer().flip();
 				tcpClient.send(msg.getByteBuffer().array(), 
 						msg.getByteBuffer().position(), msg.getByteBuffer().remaining());
 
 				//receive response ------------------------------------
-				receiveAndReply(replyMessageHandler, msg, msgLen);
+				//Thread.sleep(1);
+				int msgLen = msg.getByteBuffer().remaining();
+				String cmd = new String(msg.getByteBuffer().array(), msg.getByteBuffer().position(), msgLen);
+				receiveAndReply(replyMessageHandler, cmd);
 			} catch(SocketException e) {
 				try {
 					tcpClient.disconnect();
@@ -259,7 +269,9 @@ public class TestTcpServer {
 			}
 		}
 		
-		private void receiveAndReply(ITcpReplyMessageHandler replyMessageHandler, IByteBuff requestMsg, int msgLen) throws IOException {
+		private void receiveAndReply(
+				ITcpReplyMessageHandler replyMessageHandler, 
+				String cmd) throws IOException {
 			IByteBuff msg = replyMessageHandler.createBuffer();
 			msg.getByteBuffer().clear();
 			
@@ -309,6 +321,8 @@ public class TestTcpServer {
 			int position = 0;
 			int remaining = msg.getByteBuffer().limit();
 
+			final long logSeq = _logSeq.incrementAndGet();
+			int rcvCount = 0;
 			tcpClient.connect();
 			while(true) {
 	    		try {
@@ -316,24 +330,38 @@ public class TestTcpServer {
 							msg.getByteBuffer().array(), position, remaining);
 	    		} catch(SocketTimeoutException e) {
 	    			//nothing to read
-	    			logger.warn("TcpClient SocketTimeoutException");
+	    			logger.debug(logSeq + " ------" + "TcpClient SocketTimeoutException"
+	    					+ " rcvCount:" + rcvCount);
 	    			break;
 	    		}
 	    		
 	    		if(rcvLen < 0) {
+	    			logger.debug(logSeq + " ------" + "TcpClient read til EOF"
+	    					+ " rcvCount:" + rcvCount);
 	    			break;
 	    		}
 	    		
 	    		if(rcvLen > 0) {
+	    			rcvCount++;
+	    			
 	    			remaining -= rcvLen;
 	    			position += rcvLen;
 	    			rcvTotalLen += rcvLen;
 	    			
 	    			if(msg.getByteBuffer().array()[position - 2] == '\r' 
 	    					&& msg.getByteBuffer().array()[position - 1] == '\n') {
+	    				//if(rcvCount > 1) 
+	    				{
+	    					logger.debug(logSeq + " ------" + "TcpClient read finish. "
+	    							+ " rcvLen:" + rcvLen + " rcvCount:" + rcvCount);
+	    				}
 	    				break;
 	    			} else if(remaining == 0) {
+	    				logger.debug(logSeq + " ------" + "TcpClient read til fullfill the buffer");
 	    				break;
+	    			} else {
+	    				logger.debug(logSeq + " ------" + "TcpClient read buffer not end with '\\r\\n'. cmd:" + cmd 
+	    						+ " rcvLen:" + rcvLen + " rcvCount:" + rcvCount);
 	    			}
 	    		}
 			}
@@ -417,16 +445,16 @@ public class TestTcpServer {
 		}
 	}
 	
-	/*
-	//I think async client is slower and more complex than sync client, so it not use any more
+	//Async client is more complex than sync client.
 	private class TcpServerEventHandlerByAsyncClient implements ITcpEventHandler {
 		private PooledAsyncTcpClient tcpClient;
+		//private AsyncTcpClient tcpClient;
 		private ITcpReplyMessageHandler _replyMessageHandler;
 		
 		public TcpServerEventHandlerByAsyncClient(
 				TcpClientConfig tcpClientConfig) {
-			//tcpClient = new AsyncTcpClient(tcpClientConfig, SocketReceiveBufferSize);
 			tcpClient = _asyncTcpClientPool.borrowObject();
+			//tcpClient = new AsyncTcpClient(tcpClientConfig, SocketReceiveBufferSize);
 			
 			try {
 				tcpClient.setEventHandler(new ClientEventHandler());
@@ -446,6 +474,7 @@ public class TestTcpServer {
 		public void didDisconnect() {
 			//logger.info("TcpClient disconnectting ......");
 			//tcpClient.disconnect();
+
 			try {
 				tcpClient.returnToPool();
 			} catch (Exception e) {
@@ -538,6 +567,5 @@ public class TestTcpServer {
 			
 		}
 	}
-	*/
 
 }

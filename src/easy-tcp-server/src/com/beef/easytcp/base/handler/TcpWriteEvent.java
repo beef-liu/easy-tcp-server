@@ -57,9 +57,11 @@ public class TcpWriteEvent implements ITask {
 			SocketChannel socketChannel = (SocketChannel) _writeKey.channel();
 			
 			if(!SocketChannelUtil.isConnected(socketChannel.socket())) {
+				//logger.debug("TcpWriteEvent close ----------");
 				SocketChannelUtil.clearSelectionKey(_writeKey);
 				return;
 			} else {
+				//logger.debug("TcpWriteEvent write ----------");
 				if(_msg != null) {
 					//TODO DEBUG 
 					if(_msg.getByteBuffer().array()[0] == '\r') {

@@ -184,6 +184,10 @@ public class TcpServer implements IServer {
 		logger.info("Tcp Server shutted down <<<<<<<<<<<<<<<<<<<<<<<<<<<<");
 	}
 	
+	public int getCurrentConnectionCount() {
+		return _connecttingSocketCount.get();
+	}
+	
 	private void startTcpServer() throws IOException {
 		//The brace is just for reading clearly
 		{
@@ -428,14 +432,12 @@ public class TcpServer implements IServer {
 						, tcpSession
 						);
 
-				/*
-				logger.info("accepted client:"
-						.concat(socketChannel.socket().getRemoteSocketAddress().toString())
-						.concat(" is registered to clientSelectors[")
-						.concat(String.valueOf(clientSelectorIndex))
-						.concat("]")
-						);
-				*/
+//				logger.debug("accepted client:"
+//						.concat(socketChannel.socket().getRemoteSocketAddress().toString())
+//						.concat(" is registered to clientSelectors[")
+//						.concat(String.valueOf(clientSelectorIndex))
+//						.concat("]")
+//						);
 				
 				//notify event
 				int socketCnt = _connecttingSocketCount.incrementAndGet();
@@ -468,8 +470,8 @@ public class TcpServer implements IServer {
 			while(true) {
 				try {
 					//logger.debug("ReadThread[" + _selectorIndex + "] >>>>>>>>>>>>>>");
-					
 					if(_readSelectors[_selectorIndex].select() != 0) {
+						//logger.debug("ReadThread[" + _selectorIndex + "] <<<<<<<<<<<<<<");
 						Set<SelectionKey> keySet = _readSelectors[_selectorIndex].selectedKeys();
 						
 						for(SelectionKey key : keySet) {

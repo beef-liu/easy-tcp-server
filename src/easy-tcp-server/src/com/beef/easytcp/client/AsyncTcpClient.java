@@ -231,7 +231,7 @@ public class AsyncTcpClient implements ITcpClient {
 			}
 			
 			if(connected) {
-				logInfo("AsyncTcpClient connected");
+				//logInfo("AsyncTcpClient connected");
 				
 				//io selectionKeys ------------------------------
 				_readSelector.wakeup();
