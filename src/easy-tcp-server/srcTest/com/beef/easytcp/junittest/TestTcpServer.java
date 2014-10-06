@@ -54,6 +54,7 @@ public class TestTcpServer {
 		int serverBufferSizeKB = 8;
 		String hostRedirectTo = "127.0.0.1";
 		int portRedirectTo = 6379;
+		boolean useAsyncTcpClient = false;
 		
 		if(args.length > 0) {
 			try {
@@ -67,6 +68,12 @@ public class TestTcpServer {
 				
 				hostRedirectTo = args[i++];
 				portRedirectTo = Integer.parseInt(args[i++]);
+				
+				if(args[i++].equalsIgnoreCase("true")) {
+					useAsyncTcpClient = true; 
+				} else {
+					useAsyncTcpClient = false;
+				}
 			} catch(Throwable e) {
 				e.printStackTrace();
 			}
@@ -77,17 +84,19 @@ public class TestTcpServer {
 				+ " SocketReceiveBufferSize:" + serverBufferSizeKB + " KB"
 				+ " hostRedirectTo:" + hostRedirectTo
 				+ " portRedirectTo:" + portRedirectTo 
+				+ " useAsyncTcpClient:" + useAsyncTcpClient
 				+ "------------------------------");
 		
 		TestTcpServer test = new TestTcpServer();
 		test.startServer(
 				maxConnection, ioThreadCount, readEventThreadCount, 
-				hostRedirectTo, portRedirectTo);
+				hostRedirectTo, portRedirectTo, useAsyncTcpClient);
 	}
 	
 	public void startServer(
 			int maxConnection, int ioThreadCount, int readEventThreadCount, 
-			String hostRedirectTo, int portRedirectTo) {
+			String hostRedirectTo, int portRedirectTo,
+			boolean useAsyncTcpClient) {
 		try {
 			//int maxConnection = (int) (1024 * 4);
 			//int maxTcpClientPool = (int) (1024 * 4);
@@ -135,30 +144,31 @@ public class TestTcpServer {
 			_asyncTcpClientPool = new AsyncTcpClientPool(tcpClientPoolConfig, tcpClientConfig, bufferPool);
 			//final TcpServerEventHandlerPool handlerPool = new TcpServerEventHandlerPool();
 			
-			_server = new TcpServer(
-					serverConfig, isAllocateDirect, 
-					new ITcpEventHandlerFactory() {
+			if(useAsyncTcpClient) {
+				_server = new TcpServer(
+						serverConfig, isAllocateDirect, 
+						new ITcpEventHandlerFactory() {
 
-						@Override
-						public ITcpEventHandler createHandler(int sessionId) {
-							return (new TcpServerEventHandlerByAsyncClient(tcpClientConfig));
+							@Override
+							public ITcpEventHandler createHandler(int sessionId) {
+								return (new TcpServerEventHandlerByAsyncClient(tcpClientConfig));
+							}
 						}
-					}
-					);
+						);
+			} else {
+				_server = new TcpServer(
+						serverConfig, isAllocateDirect, 
+						new ITcpEventHandlerFactory() {
+							
+							@Override
+							public ITcpEventHandler createHandler(int sessionId) {
+								return (new TcpServerEventHandlerBySyncClient());
+							}
+						}
+						//isSyncInvokeDidReceivedMsg
+						);
+			}
 
-			/*
-			_server = new TcpServer(
-					serverConfig, isAllocateDirect, 
-					new ITcpEventHandlerFactory() {
-						
-						@Override
-						public ITcpEventHandler createHandler(int sessionId) {
-							return (new TcpServerEventHandlerBySyncClient());
-						}
-					}
-					//isSyncInvokeDidReceivedMsg
-					);
-			*/
 			
 			_server.start();
 			System.out.println("Start server -------------");
@@ -173,18 +183,24 @@ public class TestTcpServer {
 		}
 	}
 	
+	/**
+	 * If use sync tcp client, then need to find whether received all reply through protocol.
+	 * @author XingGu Liu
+	 *
+	 */
 	private class TcpServerEventHandlerBySyncClient implements ITcpEventHandler {
 
 		//private SyncTcpClient tcpClient;
 		private PooledSyncTcpClient tcpClient;
-		private MessageList<IByteBuff> _remainingMsgs = new MessageList<IByteBuff>();
+		//private MessageList<IByteBuff> _remainingMsgs = new MessageList<IByteBuff>();
+		
 		
 		public TcpServerEventHandlerBySyncClient() {
 			final int curConnectionCount = _server.getCurrentConnectionCount();
 			//if((curConnectionCount % 50) == 0) 
-			{
-				logger.debug("Tcp Server connection count:" + curConnectionCount);
-			}
+//			{
+//				logger.debug("Tcp Server connection count:" + curConnectionCount);
+//			}
 			
 			//tcpClient = new SyncTcpClient(tcpConfig);
 			tcpClient = _tcpClientPool.borrowObject();			
@@ -286,12 +302,14 @@ public class TestTcpServer {
 			int rcvTotalLen = 0;
 			int rcvLen = 0;
 			
-			/*
 			//redis protocol
+			int position = 0;
+			int remaining = msg.getByteBuffer().limit();
+			while(true)
 			{
 				try {
 					rcvLen = tcpClient.receive(
-							msg.getByteBuffer().array(), 0, msg.getByteBuffer().limit());
+							msg.getByteBuffer().array(), position, remaining);
 				} catch(SocketTimeoutException e) {
 					msg.destroy();
 					return;
@@ -302,29 +320,64 @@ public class TestTcpServer {
 					return;
 				}
 				
+				position += rcvLen;
+				remaining -=  rcvLen;
+				rcvTotalLen += rcvLen;
+				
 				byte b = msg.getByteBuffer().array()[0];
 				if(b == '-') {
-					
+					//Error reply
+					break;
 				} else if (b == '*') {
-					
+					//array
+					if(msg.getByteBuffer().array()[rcvTotalLen - 2] == '\r' 
+							&& msg.getByteBuffer().array()[rcvTotalLen - 1] == '\n') {
+						int index = binarySearchReturnLine(
+								msg.getByteBuffer().array(), 1, rcvTotalLen);
+						if(index > 0) {
+							int arraySize = Integer.parseInt(
+									new String(msg.getByteBuffer().array(), 1, index - 1));
+							int arrayCurSize = binaryCountRedisReplyElement(
+									msg.getByteBuffer().array(), index + 2, rcvTotalLen);
+							if(arraySize == arrayCurSize) {
+								break;
+							}
+						}
+					}
 				} else if (b == ':') {
+					//Integers, only one line
+					break;
 				} else if (b == '$') {
+					//Bulk Strings
+					if(msg.getByteBuffer().array()[rcvTotalLen - 2] == '\r' 
+							&& msg.getByteBuffer().array()[rcvTotalLen - 1] == '\n') {
+						int index = binarySearchReturnLine(
+								msg.getByteBuffer().array(), 1, rcvTotalLen);
+						if(index > 0) {
+							int strLen = Integer.parseInt(
+									new String(msg.getByteBuffer().array(), 1, index - 1));
+							if(strLen == -1) {
+								if(rcvTotalLen == 5) {
+									break;
+								} 
+							} else {
+								if((rcvTotalLen - index - 4) == strLen) {
+									break;
+								} 
+							}
+						}
+					}
 				} else if (b == '+') {
+					//Simple Strings, only one line
+					break;
 				} else {
 					logger.error("Unknown reply: " + (char)b);
-					rcvTotalLen = 0;
+					break;
 				}
 			}
+						
 			
-			if(rcvTotalLen == 0) {
-				msg.destroy();
-				return;
-			}
-			*/
-			
-			
-			//int receiveLen = tcpClient.receiveUntilFillUpBufferOrEnd(msg.getByteBuffer().array(), 0, msg.getByteBuffer().limit());
-			
+			/*
 			// Version 2
 			int position = 0;
 			int remaining = msg.getByteBuffer().limit();
@@ -359,20 +412,21 @@ public class TestTcpServer {
 	    			if(msg.getByteBuffer().array()[position - 2] == '\r' 
 	    					&& msg.getByteBuffer().array()[position - 1] == '\n') {
 	    				//if(rcvCount > 1) 
-	    				{
-	    					logger.debug(logSeq + " ------" + "TcpClient read finish. "
-	    							+ " rcvLen:" + rcvLen + " rcvCount:" + rcvCount);
-	    				}
+//	    				{
+//	    					logger.debug(logSeq + " ------" + "TcpClient read finish. "
+//	    							+ " rcvLen:" + rcvLen + " rcvCount:" + rcvCount);
+//	    				}
 	    				break;
 	    			} else if(remaining == 0) {
-	    				logger.debug(logSeq + " ------" + "TcpClient read til fullfill the buffer");
+//	    				logger.debug(logSeq + " ------" + "TcpClient read til fullfill the buffer");
 	    				break;
 	    			} else {
-	    				logger.debug(logSeq + " ------" + "TcpClient read buffer not end with '\\r\\n'. cmd:" + cmd 
-	    						+ " rcvLen:" + rcvLen + " rcvCount:" + rcvCount);
+//	    				logger.debug(logSeq + " ------" + "TcpClient read buffer not end with '\\r\\n'. cmd:" + cmd 
+//	    						+ " rcvLen:" + rcvLen + " rcvCount:" + rcvCount);
 	    			}
 	    		}
 			}
+			*/
 
 			/*
     		try {
@@ -440,7 +494,60 @@ public class TestTcpServer {
 		}
 
 	}
+	
+	private static int binarySearchReturnLine(byte[] bytes, int start, int endIndex) {
+		endIndex --;
+		for(int offset = start; offset < endIndex; offset++) {
+			if(bytes[offset] == '\r' && bytes[offset+1] == '\n') {
+				return offset;
+			}
+		}
+		
+		return -1;
+	}
 
+	private static int binaryCountRedisReplyElement(byte[] bytes, int start, int endIndex) {
+		int cnt = 0;
+		int offset = start;
+		byte b;
+		int indexOfReturnLine;
+		while(offset < endIndex) {
+			b = bytes[offset];
+			if(b == '+' || b == '-' || b == ':') {
+				indexOfReturnLine = binarySearchReturnLine(bytes, offset, endIndex);
+				if(indexOfReturnLine >= 0) {
+					cnt ++;
+					offset = indexOfReturnLine + 2;
+				} else {
+					break;
+				}
+			} else if (b == '$') {
+				indexOfReturnLine = binarySearchReturnLine(bytes, offset, endIndex);
+				if(indexOfReturnLine >= 0) {
+					int strLen = Integer.parseInt(
+							new String(bytes, offset + 1, indexOfReturnLine - offset - 1));
+					if(strLen == -1) {
+						offset = indexOfReturnLine + 2;
+						cnt ++;
+					} else {
+						offset = indexOfReturnLine + 2 + strLen + 2;
+						if(offset <= endIndex 
+								&& bytes[offset - 2] == '\r' && bytes[offset - 1] == '\n') {
+							cnt ++;
+						} else {
+							break;
+						}
+					}
+				} else {
+					break;
+				}
+			}
+			
+		}
+		
+		return cnt;
+	}
+	
 	private static boolean isResponseEndsCorrectly(byte[] buffer, int contentLen) {
 		if(contentLen < 2) {
 			return false;

@@ -95,6 +95,7 @@ public class SyncTcpClient implements ITcpClient {
     	return _socket.getInputStream().read(buffer, offset, readMaxLen);
     }
 
+    /* It is useless because receiving until timeout will waste time.
     public int receiveUntilFillUpBufferOrEnd(byte[] buffer, int offset, int readMaxLen) throws IOException {
     	connect();
     	
@@ -131,5 +132,5 @@ public class SyncTcpClient implements ITcpClient {
     	
     	return readTotalLen;
     }
-    
+    */
 }
