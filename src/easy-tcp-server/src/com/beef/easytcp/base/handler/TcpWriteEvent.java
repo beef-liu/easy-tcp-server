@@ -52,6 +52,13 @@ public class TcpWriteEvent implements ITask {
 	@Override
 	public void run() {
 		try {
+			if(_writeKey == null) {
+				logger.debug("TcpWriteEvent() _writeKey is null");
+			} else {
+				if(_writeKey.selector() == null) {
+					logger.debug("TcpWriteEvent() _writeKey.selector() is null");
+				}
+			}
 			_writeKey.selector().select();
 			
 			SocketChannel socketChannel = (SocketChannel) _writeKey.channel();
@@ -64,9 +71,9 @@ public class TcpWriteEvent implements ITask {
 				//logger.debug("TcpWriteEvent write ----------");
 				if(_msg != null) {
 					//TODO DEBUG 
-					if(_msg.getByteBuffer().array()[0] == '\r') {
-						System.out.println("writeMessage() reply starts with '\\r'.");
-					}
+//					if(_msg.getByteBuffer().array()[0] == '\r') {
+//						System.out.println("writeMessage() reply starts with '\\r'.");
+//					}
 
 					while(_msg.getByteBuffer().hasRemaining()) {
 						socketChannel.write(_msg.getByteBuffer());
@@ -85,9 +92,9 @@ public class TcpWriteEvent implements ITask {
 					}
 					
 					//TODO DEBUG 
-					if(bufferArray[0].array()[0] == '\r') {
-						System.out.println("writeMessage() replys starts with '\\r'.");
-					}
+//					if(bufferArray[0].array()[0] == '\r') {
+//						System.out.println("writeMessage() replys starts with '\\r'.");
+//					}
 					while(bufferArray[bufferArray.length - 1].hasRemaining()) {
 						socketChannel.write(bufferArray);
 					}

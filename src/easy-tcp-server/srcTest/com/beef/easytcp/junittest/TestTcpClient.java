@@ -3,9 +3,11 @@ package com.beef.easytcp.junittest;
 import java.net.SocketAddress;
 import java.util.Iterator;
 
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.junit.Test;
 
 import com.beef.easytcp.base.IByteBuff;
+import com.beef.easytcp.base.buffer.ByteBufferPool;
 import com.beef.easytcp.base.handler.ITcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
 import com.beef.easytcp.base.handler.ITcpReplyMessageHandler;
@@ -97,7 +99,15 @@ public class TestTcpClient {
 			}
 		};
 		
-		AsyncTcpClient client = new AsyncTcpClient(tcpConfig, 64);
+		GenericObjectPoolConfig byteBufferPoolConfig = new GenericObjectPoolConfig();
+		byteBufferPoolConfig.setMaxIdle(5);
+		byteBufferPoolConfig.setMaxTotal(10);
+		byteBufferPoolConfig.setMaxWaitMillis(1000);
+
+		ByteBufferPool bufferPool = new ByteBufferPool(
+				byteBufferPoolConfig, false, 1024 * 8); 
+		
+		AsyncTcpClient client = new AsyncTcpClient(tcpConfig, bufferPool);
 		client.setEventHandler(new MyTcpClinetEventHandler());
 
 		try {

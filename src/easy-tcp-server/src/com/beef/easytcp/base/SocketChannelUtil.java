@@ -16,6 +16,7 @@ public class SocketChannelUtil {
 			if(selectionKey != null && selectionKey.isValid()) {
 				try {
 					if(ServerSocketChannel.class.isAssignableFrom(selectionKey.channel().getClass())) {
+						logger.debug("ServerSocketChannel closing");
 						closeServerSocketChannel((ServerSocketChannel) selectionKey.channel());
 					} else {
 						closeSocketChannel((SocketChannel) selectionKey.channel());

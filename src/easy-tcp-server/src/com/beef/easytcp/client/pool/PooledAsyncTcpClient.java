@@ -2,6 +2,7 @@ package com.beef.easytcp.client.pool;
 
 import com.beef.easytcp.base.IPool;
 import com.beef.easytcp.base.IPooledObject;
+import com.beef.easytcp.base.buffer.ByteBufferPool;
 import com.beef.easytcp.client.AsyncTcpClient;
 import com.beef.easytcp.client.TcpClientConfig;
 
@@ -9,8 +10,8 @@ public class PooledAsyncTcpClient extends AsyncTcpClient implements IPooledObjec
 
 	protected IPool<PooledAsyncTcpClient> _backPool = null;
 
-	public PooledAsyncTcpClient(TcpClientConfig tcpConfig, int byteBufferPoolSize) {
-		super(tcpConfig, byteBufferPoolSize);
+	public PooledAsyncTcpClient(TcpClientConfig tcpConfig, ByteBufferPool byteBufferPool) {
+		super(tcpConfig, byteBufferPool);
 	}
 
 	@Override

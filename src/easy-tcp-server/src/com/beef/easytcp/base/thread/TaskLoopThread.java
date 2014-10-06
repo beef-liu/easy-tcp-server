@@ -12,6 +12,9 @@ public class TaskLoopThread <TaskType extends ITask> extends Thread {
 	
 	protected volatile boolean _stopFlg = false;
 	protected LinkedBlockingQueue<TaskType> _taskQueue = new LinkedBlockingQueue<TaskType>();
+
+	private Object _waitObj = new Object();
+	private volatile boolean _waitFlg = false;
 	
 	/**
 	 * Thread's state will become RUNNABLE
@@ -42,6 +45,17 @@ public class TaskLoopThread <TaskType extends ITask> extends Thread {
 			}
 		}
 	}
+
+	public void suspendThread() {
+		_waitFlg = true;
+	}
+	
+	public void resumeThread() {
+		_waitFlg = false;
+		synchronized (_waitObj) {
+			_waitObj.notifyAll();
+		}
+	}
 	
 	/**
 	 * Thread's state will become TERMINATED after shutdown.
@@ -69,6 +83,17 @@ public class TaskLoopThread <TaskType extends ITask> extends Thread {
 		try {
 			//_stopFlg is for circumstance that InterruptedException occurred and was catched in implementation method
 			while(!_stopFlg) {
+				if(_waitFlg) {
+					synchronized (_waitObj) {
+						try {
+							_waitObj.wait();
+						} catch (InterruptedException e1) {
+							//System.out.println("wait interrupted-----");
+						}
+					}
+				}
+				
+				
 				t = _taskQueue.take();
 				
 				//do beforeRun() --------

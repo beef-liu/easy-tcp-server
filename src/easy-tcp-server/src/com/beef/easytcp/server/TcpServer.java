@@ -66,6 +66,7 @@ public class TcpServer implements IServer {
 	protected ServerSocketChannel _serverSocketChannel = null;
 	protected Selector _serverSelector = null;
 	protected Selector[] _readSelectors = null;
+	protected ReadThread[] _readThreads = null;
 	//protected Selector[] _writeSelectors = null;
 	//protected Selector _writeSelector = null;
 	protected LoopTaskThreadFixedPool<TcpWriteEvent> _writeEventThreadPool = null;
@@ -233,7 +234,7 @@ public class TcpServer implements IServer {
 			//init threads(listener, IO, worker dispatcher)
 			{
 				int threadCount = 1 + _tcpServerConfig.getSocketIOThreadCount() + 1;
-				_serverThreadPool = Executors.newFixedThreadPool(threadCount);
+				_serverThreadPool = Executors.newCachedThreadPool();
 			}
 			{
 				int threadCount = _tcpServerConfig.getReadEventThreadCount();
@@ -252,10 +253,12 @@ public class TcpServer implements IServer {
 			//int ioSelectorCount = (int) Math.ceil(_tcpServerConfig.getSocketIOThreadCount() / 2.0);
 			int ioSelectorCount = _tcpServerConfig.getSocketIOThreadCount();
 
-			_readSelectors = new Selector[ioSelectorCount]; 
+			_readSelectors = new Selector[ioSelectorCount];
+			_readThreads = new ReadThread[ioSelectorCount];
 			for(int i = 0; i < _readSelectors.length; i++) {
 				_readSelectors[i] = Selector.open();
-				_serverThreadPool.execute(new ReadThread(i));
+				_readThreads[i] = new ReadThread(i);
+				_serverThreadPool.execute(_readThreads[i]);
 			}
 			
 			/*
@@ -301,7 +304,8 @@ public class TcpServer implements IServer {
 			while(true) {
 				try {
 					//logger.debug("ListenerThread.run() ----");
-					if(_serverSelector.select() != 0) {
+					if(_serverSelector.select(1000) != 0) {
+						//logger.debug("ListenerThread.run() <<<<<<<<<<<<<");
 						Set<SelectionKey> keySet = _serverSelector.selectedKeys();
 						
 						for(SelectionKey key : keySet) {
@@ -320,12 +324,12 @@ public class TcpServer implements IServer {
 				} catch(Throwable e) {
 					logger.error("ListenerThread.run() Error Occurred", e); 
 				} finally {
-					try {
-						Thread.sleep(SLEEP_PERIOD);
-					} catch(InterruptedException e) {
-						logger.info("ListenerThread InterruptedException -----");
-						break;
-					}
+//					try {
+//						Thread.sleep(SLEEP_PERIOD);
+//					} catch(InterruptedException e) {
+//						logger.info("ListenerThread InterruptedException -----");
+//						break;
+//					}
 				}
 			}
 		}
@@ -394,6 +398,7 @@ public class TcpServer implements IServer {
 		//accept successfully
 		if(socketChannel != null) {
 			try {
+				//logger.debug("accept() 000");
 				//configure socket channel ----------------------------
 				socketChannel.configureBlocking(false);
 				socketChannel.socket().setSendBufferSize(_tcpServerConfig.getSocketSendBufferSize());
@@ -412,25 +417,52 @@ public class TcpServer implements IServer {
 				*/
 
 				int sessionId = _sessionIdSeed.incrementAndGet();
+				//logger.debug("accept() 001");
 				TcpWriteEventThread writeEventThread = (TcpWriteEventThread) _writeEventThreadPool.getThreadOfGroup(sessionId);
-				writeEventThread.getWriteSelector().wakeup();
-				//_writeSelector.wakeup();
-				SelectionKey writeKey = socketChannel.register(
-						writeEventThread.getWriteSelector(), 
-						SelectionKey.OP_WRITE
-						);
+				//logger.debug("accept() 002");
+				SelectionKey writeKey = null;
+				try {
+					writeEventThread.suspendThread();
+					writeEventThread.getWriteSelector().wakeup();
+					//logger.debug("accept() 002a");
+					writeKey = socketChannel.register(
+							writeEventThread.getWriteSelector(), 
+							SelectionKey.OP_WRITE
+							);
+				} finally {
+					writeEventThread.resumeThread();
+				}
+				//logger.debug("accept() 003");
 				final ITcpEventHandler eventHandler = _eventHandlerFactory.createHandler(sessionId);
+				//logger.debug("accept() 004");
 				TcpSession tcpSession = new TcpSession(sessionId, writeKey, eventHandler, new ReplyMsgHandler(sessionId, writeKey));
 				writeKey.attach(tcpSession);
 
+				//notify event
+				try {
+					int socketCnt = _connecttingSocketCount.incrementAndGet();
+					//logger.debug("_connecttingSocketCount(incre):" + socketCnt);
+					//logger.debug("accept() 005");
+					eventHandler.didConnect(tcpSession.getReplyMsgHandler(), socketChannel.socket().getRemoteSocketAddress());
+					//logger.debug("accept() 006");
+				} catch(Throwable e) {
+					logger.error(null, e);
+				}
 				
-				_readSelectors[clientSelectorIndex].wakeup();
-				SelectionKey readKey = socketChannel.register(
-						_readSelectors[clientSelectorIndex], 
-						SelectionKey.OP_READ 
-						//| SelectionKey.OP_WRITE
-						, tcpSession
-						);
+				try {
+					_readThreads[clientSelectorIndex].suspendThread();
+					_readSelectors[clientSelectorIndex].wakeup();
+					//logger.debug("accept() 007");
+					SelectionKey readKey = socketChannel.register(
+							_readSelectors[clientSelectorIndex], 
+							SelectionKey.OP_READ 
+							//| SelectionKey.OP_WRITE
+							, tcpSession
+							);
+				} finally {
+					_readThreads[clientSelectorIndex].resumeThread();
+				}
+				//logger.debug("accept() 008");
 
 //				logger.debug("accepted client:"
 //						.concat(socketChannel.socket().getRemoteSocketAddress().toString())
@@ -438,11 +470,6 @@ public class TcpServer implements IServer {
 //						.concat(String.valueOf(clientSelectorIndex))
 //						.concat("]")
 //						);
-				
-				//notify event
-				int socketCnt = _connecttingSocketCount.incrementAndGet();
-				//logger.debug("_connecttingSocketCount(incre):" + socketCnt);
-				eventHandler.didConnect(tcpSession.getReplyMsgHandler(), socketChannel.socket().getRemoteSocketAddress());
 				
 				return AcceptResult.Accepted;
 			} catch (Throwable e) {
@@ -460,6 +487,20 @@ public class TcpServer implements IServer {
 	
 	protected class ReadThread extends Thread {
 		private int _selectorIndex;
+
+		private Object _waitObj = new Object();
+		private volatile boolean _waitFlg = false;
+
+		public void suspendThread() {
+			_waitFlg = true;
+		}
+		
+		public void resumeThread() {
+			_waitFlg = false;
+			synchronized (_waitObj) {
+				_waitObj.notifyAll();
+			}
+		}
 		
 		public ReadThread(int selectorIndex) {
 			_selectorIndex = selectorIndex;
@@ -469,8 +510,18 @@ public class TcpServer implements IServer {
 		public void run() {
 			while(true) {
 				try {
+					if(_waitFlg) {
+						synchronized (_waitObj) {
+							try {
+								_waitObj.wait();
+							} catch (InterruptedException e1) {
+								//System.out.println("wait interrupted-----");
+							}
+						}
+					}
+					
 					//logger.debug("ReadThread[" + _selectorIndex + "] >>>>>>>>>>>>>>");
-					if(_readSelectors[_selectorIndex].select() != 0) {
+					if(_readSelectors[_selectorIndex].select(1000) != 0) {
 						//logger.debug("ReadThread[" + _selectorIndex + "] <<<<<<<<<<<<<<");
 						Set<SelectionKey> keySet = _readSelectors[_selectorIndex].selectedKeys();
 						
@@ -498,12 +549,12 @@ public class TcpServer implements IServer {
 					logger.error("IOThread error", e);
 				} finally {
 					//I don't know why Key.select() will wait forever if not sleep a while;
-					try {
-						Thread.sleep(SLEEP_PERIOD);
-					} catch(InterruptedException e) {
-						logger.info("IOThread InterruptedException -----");
-						break;
-					}
+//					try {
+//						Thread.sleep(SLEEP_PERIOD);
+//					} catch(InterruptedException e) {
+//						logger.info("IOThread InterruptedException -----");
+//						break;
+//					}
 				}
 			}
 		}

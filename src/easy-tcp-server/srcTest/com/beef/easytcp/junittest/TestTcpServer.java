@@ -12,6 +12,7 @@ import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
 
 import com.beef.easytcp.base.IByteBuff;
+import com.beef.easytcp.base.buffer.ByteBufferPool;
 import com.beef.easytcp.base.handler.ITcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
 import com.beef.easytcp.base.handler.ITcpReplyMessageHandler;
@@ -50,8 +51,7 @@ public class TestTcpServer {
 		int readEventThreadCount = 32;
 		//int writeEventThreadCount = ioThreadCount;
 		//boolean isSyncInvokeDidReceivedMsg = false;
-		int serverBufferSizeKB = 16;
-		int SocketReceiveBufferSize = 1024 * serverBufferSizeKB;
+		int serverBufferSizeKB = 8;
 		String hostRedirectTo = "127.0.0.1";
 		int portRedirectTo = 6379;
 		
@@ -111,7 +111,7 @@ public class TestTcpServer {
 			final TcpClientConfig tcpClientConfig = new TcpClientConfig();
 			tcpClientConfig.setHost(hostRedirectTo);
 			tcpClientConfig.setPort(portRedirectTo);
-			tcpClientConfig.setConnectTimeoutMS(1000);
+			tcpClientConfig.setConnectTimeoutMS(3000);
 			tcpClientConfig.setSoTimeoutMS(1000);
 			tcpClientConfig.setReceiveBufferSize(SocketReceiveBufferSize);
 			tcpClientConfig.setSendBufferSize(SocketReceiveBufferSize);
@@ -124,7 +124,15 @@ public class TestTcpServer {
 			tcpClientPoolConfig.setMaxWaitMillis(1000);
 
 			_tcpClientPool = new SyncTcpClientPool(tcpClientPoolConfig, tcpClientConfig);
-			_asyncTcpClientPool = new AsyncTcpClientPool(tcpClientPoolConfig, tcpClientConfig, 4);
+			
+			GenericObjectPoolConfig byteBufferPoolConfig = new GenericObjectPoolConfig();
+			byteBufferPoolConfig.setMaxIdle(maxTcpClientPool / 5);
+			byteBufferPoolConfig.setMaxTotal(maxTcpClientPool);
+			byteBufferPoolConfig.setMaxWaitMillis(1000);
+
+			ByteBufferPool bufferPool = new ByteBufferPool(
+					byteBufferPoolConfig, false, 1024 * 8); 
+			_asyncTcpClientPool = new AsyncTcpClientPool(tcpClientPoolConfig, tcpClientConfig, bufferPool);
 			//final TcpServerEventHandlerPool handlerPool = new TcpServerEventHandlerPool();
 			
 			_server = new TcpServer(
@@ -453,21 +461,27 @@ public class TestTcpServer {
 		
 		public TcpServerEventHandlerByAsyncClient(
 				TcpClientConfig tcpClientConfig) {
+
+			//logger.debug("Tcp Server connection count:" + _server.getCurrentConnectionCount());
+			
 			tcpClient = _asyncTcpClientPool.borrowObject();
 			//tcpClient = new AsyncTcpClient(tcpClientConfig, SocketReceiveBufferSize);
 			
-			try {
-				tcpClient.setEventHandler(new ClientEventHandler());
-				tcpClient.connect();
-				tcpClient.waitConnect(1000);
-			} catch (IOException e) {
-				logger.error(null, e);
-			}
+			tcpClient.setEventHandler(new ClientEventHandler());
+			
+			//logger.debug("AsyncTcpClient connect done");
 		}
 		
 		@Override
 		public void didConnect(ITcpReplyMessageHandler replyMessageHandler,
 				SocketAddress remoteAddress) {
+			try {
+				//logger.debug("AsyncTcpClient connecting");
+				tcpClient.connect();
+				//logger.debug("AsyncTcpClient isConnected:" + tcpClient.isConnected());
+			} catch (IOException e) {
+				logger.error(null, e);
+			}
 		}
 
 		@Override
@@ -512,6 +526,7 @@ public class TestTcpServer {
 			 	sendBuff.getByteBuffer().position(0);
 			 	sendBuff.getByteBuffer().limit(msg.getByteBuffer().limit());
 			 	
+			 	//logger.debug("tcp server received msg");
 				tcpClient.send(sendBuff);
 			} catch(Throwable e) {
 				logger.error(null, e);
@@ -540,10 +555,10 @@ public class TestTcpServer {
 				while(iter.hasNext()) {
 					msg = iter.next();
 
-					msg.getByteBuffer().flip();
+					this.didReceiveMessage(replyMessageHandler, msg);
 				}
 
-				TcpServerEventHandlerByAsyncClient.this._replyMessageHandler.sendMessage(msgs);
+				//TcpServerEventHandlerByAsyncClient.this._replyMessageHandler.sendMessage(msgs);
 			}
 
 			@Override
@@ -552,13 +567,14 @@ public class TestTcpServer {
 				try {
 					msg.getByteBuffer().flip();
 					
-				 	IByteBuff sendBuff = replyMessageHandler.createBuffer();
+				 	IByteBuff sendBuff = TcpServerEventHandlerByAsyncClient.this._replyMessageHandler.createBuffer();
 				 	System.arraycopy(
 				 			msg.getByteBuffer().array(), msg.getByteBuffer().position(), 
 				 			sendBuff.getByteBuffer().array(), 0, msg.getByteBuffer().limit());
 				 	sendBuff.getByteBuffer().position(0);
 				 	sendBuff.getByteBuffer().limit(msg.getByteBuffer().limit());
-				 	
+
+				 	//logger.debug("tcp client received msg");
 					TcpServerEventHandlerByAsyncClient.this._replyMessageHandler.sendMessage(sendBuff);
 				} catch(Throwable e) {
 					logger.error(null, e);

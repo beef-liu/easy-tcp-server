@@ -4,15 +4,16 @@ import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.PooledObjectFactory;
 import org.apache.commons.pool2.impl.DefaultPooledObject;
 
+import com.beef.easytcp.base.buffer.ByteBufferPool;
 import com.beef.easytcp.client.TcpClientConfig;
 
 public class AsyncTcpClientPoolFactory implements PooledObjectFactory<PooledAsyncTcpClient> {
 	private TcpClientConfig _tcpConfig;
-	private int _byteBufferPoolSize;
+	private ByteBufferPool _byteBufferPool;
 	
-	public AsyncTcpClientPoolFactory(TcpClientConfig tcpConfig, int byteBufferPoolSize) {
+	public AsyncTcpClientPoolFactory(TcpClientConfig tcpConfig, ByteBufferPool byteBufferPool) {
 		_tcpConfig = tcpConfig;
-		_byteBufferPoolSize = byteBufferPoolSize;
+		_byteBufferPool = byteBufferPool;
 	}
 	
 	@Override
@@ -28,7 +29,7 @@ public class AsyncTcpClientPoolFactory implements PooledObjectFactory<PooledAsyn
 
 	@Override
 	public PooledObject<PooledAsyncTcpClient> makeObject() throws Exception {
-		final PooledAsyncTcpClient tcpClient = new PooledAsyncTcpClient(_tcpConfig, _byteBufferPoolSize);
+		final PooledAsyncTcpClient tcpClient = new PooledAsyncTcpClient(_tcpConfig, _byteBufferPool);
 		return new DefaultPooledObject<PooledAsyncTcpClient>(tcpClient);
 	}
 
