@@ -37,19 +37,21 @@ import com.beef.easytcp.base.thread.pool.LoopTaskThreadFixedPool;
  * The work flow:
  * listener thread   * 1: do accept()
  * Read thread       * r: do channel.read() to read request as a readEvent add to ReadEventThreadPool.
- * Write thread      * w: do channel.write() to write reply to remote peer.
- * ReadEventThread   * N: ReadEventThread are pooled. The pool reuses cached threads to handle request data, and handle event sequentially for one connection 
+ * ReadEventThread   * n: ReadEventThread are pooled. The pool reuses cached threads to handle request data, and handle event sequentially for one connection 
+ * WriteEventThread   * m: WriteEventThread are pooled. The pool reuses cached threads to handle request data, and handle event sequentially for one connection 
  * 
  * ---------------------------------------------------------------------
- * In this work flow of threads, there are features below:
- * 1. Suppose that there is 4 CPU core, then setting r and w with 4 is reasonable, I think.  
- * 2. Easy to support massive connections, for example more than 10000. Because there is small number of threads, not the case that 10000 threads for 10000 connection. 
- * 3. You should set number of read event threads depend on what kind of business is. 
+ * In this work flow of threads, there are some features below:
+ * 1. Suppose that there is 4 CPU core, then setting r = 1 or 2 is reasonable, I think. Because it is just dispatch received messages to ReadEventThreadPool.  
+ * 2. Easy to support massive connections, for example more than 10000. Because there is small number of threads, not the case that 10000 threads for 10000 connection.
+ * 3. About number of WriteEventThread, setting m = 1 or 2  is reasonable, I think. Because it is just do channel.write() with replies. 
+ * 4. About number of ReadEventThread, a good choice is depend on what kind of business is. Because every thread will invoke handler's method which maybe take a while.
  *    And actually this number only can be power of 2, even you assigned a number which is not a power of 2, but pool size will be power(2, (int)(log(N) / log(2)))
  *    pool size made to power of 2 is for faster to choose thread. 
  *    ---------------------
  *    For example, if there is many IO operations in handling request, then you need more threads(16?, 32?, 64?). 
- * 	  For example, if each handling will operate DB and average time cost 10 ms, and you hope to support 10000 connection, then N = 128 is a reasonable number.    
+ * 	  For example, if each handling will operate DB and average time cost 10 ms, and you hope to support 10000 connection, then N = 128 is a reasonable number. 
+ *    And too big number of ReadEventThread maybe is not a good choice, because it maybe increase cost on CPU switching between many threads.  
  * 
  * ---------------------------------------------------------------------
  * 
@@ -71,6 +73,7 @@ public class TcpServer implements IServer {
 	//protected Selector _writeSelector = null;
 	protected LoopTaskThreadFixedPool<TcpWriteEvent> _writeEventThreadPool = null;
 	
+	protected boolean _isBufferPoolAssigned = false;
 	protected ByteBufferPool _bufferPool;
 	protected ITcpEventHandlerFactory _eventHandlerFactory;
 	
@@ -107,6 +110,20 @@ public class TcpServer implements IServer {
 		_eventHandlerFactory = eventHandlerFactory;
 		//_isSyncInvokeDidReceivedMsg = isSyncInvokeDidReceivedMsg;
 	}
+
+	public TcpServer(
+			TcpServerConfig tcpServerConfig, 
+			boolean isAllocateDirect,
+			ITcpEventHandlerFactory eventHandlerFactory,
+			ByteBufferPool bufferPool
+			) {
+		this(tcpServerConfig, isAllocateDirect, eventHandlerFactory);
+		
+		_bufferPool = bufferPool;
+		_isBufferPoolAssigned = true;
+	}
+	
+	
 	
 	@Override
 	public void start() {
@@ -136,11 +153,13 @@ public class TcpServer implements IServer {
 		} catch(Throwable e) {
 			logger.error("shutdown()", e);
 		}
-		
-		try {
-			_bufferPool.close();
-		} catch(Throwable e) {
-			logger.error("shutdown()", e);
+
+		if(!_isBufferPoolAssigned) {
+			try {
+				_bufferPool.close();
+			} catch(Throwable e) {
+				logger.error("shutdown()", e);
+			}
 		}
 		
 		try {
@@ -190,7 +209,7 @@ public class TcpServer implements IServer {
 	}
 	
 	private void startTcpServer() throws IOException {
-		//The brace is just for reading clearly
+		if(!_isBufferPoolAssigned)
 		{
 			//init bytebuffer pool -----------------------------
 			int bufferByteSize = _tcpServerConfig.getSocketReceiveBufferSize();
