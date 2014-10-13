@@ -66,7 +66,7 @@
 		depends="createBinTmp,copySrc,copyClass,deleteJUnitClass,deleteVssFile,deleteSVN"> 
 		<jar jarfile="${jar.name}" basedir="${bintemp.dir}" />
 		<delete dir="${bintemp.dir}"></delete>
-		<copy todir="./executable/lib/" overwrite="true" verbose="false">
+		<copy todir="./execute/lib/" overwrite="true" verbose="false">
 		    <fileset dir="./">
 		        <include name="${jar.name}"></include>
 		    </fileset> 
