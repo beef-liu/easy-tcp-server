@@ -16,6 +16,14 @@ public class ByteBufferPool implements IPool<PooledByteBuffer> {
 				new ByteBufferPoolFactory(isAllocateDirect, bufferByteSize), 
 				poolConfig);
 	}
+
+	public ByteBufferPool(GenericObjectPoolConfig poolConfig, 
+			ByteBufferPoolFactory poolFactory
+			) {
+		_backPool = new GenericObjectPool<PooledByteBuffer>(
+				poolFactory, 
+				poolConfig);
+	}
 	
 	@Override
 	public void returnObject(PooledByteBuffer obj) {
