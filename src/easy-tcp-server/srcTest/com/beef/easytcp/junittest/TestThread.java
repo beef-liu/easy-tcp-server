@@ -47,6 +47,7 @@ public class TestThread {
 		}
 	}
 	
+	@Test
 	public void test2() {
 		try {
 			TaskLoop<String> taskLoop = new TaskLoop<String>();
@@ -79,7 +80,6 @@ public class TestThread {
 		}
 	}
 	
-	@Test
 	public void test3() {
 		try {
 

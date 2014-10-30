@@ -78,6 +78,7 @@ public class TcpServer implements IServer {
 	protected ITcpEventHandlerFactory _eventHandlerFactory;
 	
 	protected ExecutorService _serverThreadPool;
+	protected ListenerThread _listenerThread;
 	protected LoopTaskThreadFixedPool<TcpReadEvent> _readEventThreadPool;
 	
 	
@@ -149,7 +150,25 @@ public class TcpServer implements IServer {
 		}
 		
 		try {
+			_listenerThread.stopThread();
+		} catch(Throwable e) {
+			logger.error("shutdown()", e);
+		}
+		
+		try {
 			_serverThreadPool.shutdownNow();
+		} catch(Throwable e) {
+			logger.error("shutdown()", e);
+		}
+
+		try {
+			for(int i = 0; i < _readThreads.length; i++) {
+				try {
+					_readThreads[i].stopThread();
+				} catch(Throwable e) {
+					logger.error("shutdown()", e);
+				}
+			}
 		} catch(Throwable e) {
 			logger.error("shutdown()", e);
 		}
@@ -266,7 +285,8 @@ public class TcpServer implements IServer {
 //			long initialDelay = 1000;
 //			_serverThreadPool.scheduleAtFixedRate(
 //					new ListenerThread(), initialDelay, threadPeriod, TimeUnit.MILLISECONDS);
-			_serverThreadPool.execute(new ListenerThread());
+			_listenerThread = new ListenerThread();
+			_serverThreadPool.execute(_listenerThread);
 			
 			//IO Threads
 			//int ioSelectorCount = (int) Math.ceil(_tcpServerConfig.getSocketIOThreadCount() / 2.0);
@@ -317,10 +337,15 @@ public class TcpServer implements IServer {
 	}
 	
 	protected class ListenerThread extends Thread {
+		private volatile boolean _stopFlg = false;
+		
+		public void stopThread() {
+			_stopFlg = true;
+		}
 		
 		@Override
 		public void run() {
-			while(true) {
+			while(!_stopFlg) {
 				try {
 					//logger.debug("ListenerThread.run() ----");
 					if(_serverSelector.select(1000) != 0) {
@@ -507,6 +532,7 @@ public class TcpServer implements IServer {
 	protected class ReadThread extends Thread {
 		private int _selectorIndex;
 
+		private volatile boolean _stopFlg = false;
 		private Object _waitObj = new Object();
 		private volatile boolean _waitFlg = false;
 
@@ -521,13 +547,17 @@ public class TcpServer implements IServer {
 			}
 		}
 		
+		public void stopThread() {
+			_stopFlg = true;
+		}
+		
 		public ReadThread(int selectorIndex) {
 			_selectorIndex = selectorIndex;
 		}
 		
 		@Override
 		public void run() {
-			while(true) {
+			while(!_stopFlg) {
 				try {
 					if(_waitFlg) {
 						synchronized (_waitObj) {
