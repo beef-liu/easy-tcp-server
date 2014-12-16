@@ -1,4 +1,4 @@
-package com.beef.easytcp.base.thread;
+package com.beef.easytcp.util.thread;
 
 import java.util.Collection;
 import java.util.concurrent.LinkedBlockingQueue;

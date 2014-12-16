@@ -27,8 +27,8 @@ import com.beef.easytcp.base.handler.MessageList;
 import com.beef.easytcp.base.handler.TcpReadEvent;
 import com.beef.easytcp.base.handler.TcpWriteEvent;
 import com.beef.easytcp.base.handler.TcpWriteEventThread;
-import com.beef.easytcp.base.thread.TaskLoopThread;
 import com.beef.easytcp.server.TcpException;
+import com.beef.easytcp.util.thread.TaskLoopThread;
 
 public class AsyncTcpClient implements ITcpClient {
 	protected final static long SLEEP_PERIOD = 1;

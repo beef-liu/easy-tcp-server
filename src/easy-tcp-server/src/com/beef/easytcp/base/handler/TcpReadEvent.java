@@ -5,7 +5,7 @@ import java.util.Iterator;
 import org.apache.log4j.Logger;
 
 import com.beef.easytcp.base.IByteBuff;
-import com.beef.easytcp.base.thread.ITask;
+import com.beef.easytcp.util.thread.ITask;
 
 public class TcpReadEvent implements ITask {
 	private final static Logger logger = Logger.getLogger(TcpReadEvent.class);

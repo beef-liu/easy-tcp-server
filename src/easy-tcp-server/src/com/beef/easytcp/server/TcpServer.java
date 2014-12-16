@@ -29,9 +29,9 @@ import com.beef.easytcp.base.handler.TcpReadEvent;
 import com.beef.easytcp.base.handler.TcpSession;
 import com.beef.easytcp.base.handler.TcpWriteEvent;
 import com.beef.easytcp.base.handler.TcpWriteEventThread;
-import com.beef.easytcp.base.thread.ITaskLoopThreadFactory;
-import com.beef.easytcp.base.thread.TaskLoopThread;
-import com.beef.easytcp.base.thread.pool.LoopTaskThreadFixedPool;
+import com.beef.easytcp.util.thread.ITaskLoopThreadFactory;
+import com.beef.easytcp.util.thread.TaskLoopThread;
+import com.beef.easytcp.util.thread.pool.LoopTaskThreadFixedPool;
 
 /**
  * The work flow:

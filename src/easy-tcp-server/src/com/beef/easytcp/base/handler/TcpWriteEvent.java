@@ -10,7 +10,7 @@ import org.apache.log4j.Logger;
 
 import com.beef.easytcp.base.IByteBuff;
 import com.beef.easytcp.base.SocketChannelUtil;
-import com.beef.easytcp.base.thread.ITask;
+import com.beef.easytcp.util.thread.ITask;
 
 public class TcpWriteEvent implements ITask {
 	private final static Logger logger = Logger.getLogger(TcpWriteEvent.class);

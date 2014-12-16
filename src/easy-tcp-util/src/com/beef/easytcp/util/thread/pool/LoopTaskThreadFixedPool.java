@@ -1,4 +1,4 @@
-package com.beef.easytcp.base.thread.pool;
+package com.beef.easytcp.util.thread.pool;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -6,9 +6,9 @@ import java.util.List;
 
 import org.apache.log4j.Logger;
 
-import com.beef.easytcp.base.thread.ITask;
-import com.beef.easytcp.base.thread.ITaskLoopThreadFactory;
-import com.beef.easytcp.base.thread.TaskLoopThread;
+import com.beef.easytcp.util.thread.ITask;
+import com.beef.easytcp.util.thread.ITaskLoopThreadFactory;
+import com.beef.easytcp.util.thread.TaskLoopThread;
 
 public class LoopTaskThreadFixedPool <TaskType extends ITask> {
 	private final static Logger logger = Logger.getLogger(LoopTaskThreadFixedPool.class);

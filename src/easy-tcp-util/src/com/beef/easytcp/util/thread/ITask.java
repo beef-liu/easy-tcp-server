@@ -1,4 +1,4 @@
-package com.beef.easytcp.base.thread;
+package com.beef.easytcp.util.thread;
 
 public interface ITask extends Runnable {
 	/*
