@@ -45,6 +45,14 @@ public class TaskLoopThread <TaskType extends ITask> extends Thread {
 			}
 		}
 	}
+	
+	/**
+	 * Current size of task queue.
+	 * @return size
+	 */
+	public int taskQueueSize() {
+		return _taskQueue.size();
+	}
 
 	public void suspendThread() {
 		_waitFlg = true;
