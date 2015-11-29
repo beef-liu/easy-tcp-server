@@ -6,4 +6,5 @@ public interface IPool <T extends IPooledObject> {
 	
 	public T borrowObject();
 	
+	public void close();
 }

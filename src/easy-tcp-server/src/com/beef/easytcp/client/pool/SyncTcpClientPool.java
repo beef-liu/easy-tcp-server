@@ -31,5 +31,10 @@ public class SyncTcpClientPool implements IPool<PooledSyncTcpClient> {
 			throw new RuntimeException(e);
 		}
 	}
+	
+	@Override
+	public void close() {
+		_backPool.close();
+	}
 
 }

@@ -34,4 +34,8 @@ public class AsyncTcpClientPool implements IPool<PooledAsyncTcpClient> {
 		}
 	}
 
+	@Override
+	public void close() {
+		_backPool.close();
+	}
 }
