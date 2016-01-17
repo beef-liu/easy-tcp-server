@@ -1,7 +1,10 @@
 package com.beef.easytcp.base.handler;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.CancelledKeyException;
+import java.nio.channels.FileChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.Iterator;
@@ -17,9 +20,24 @@ public class TcpWriteEvent implements ITask {
 
 	protected int _sessionId;
 	protected SelectionKey _writeKey;
+	
+	//send type ---> msg list
 	protected MessageList<? extends IByteBuff> _msgs = null;
+	//send type ---> msg
 	protected IByteBuff _msg = null;
-
+	
+	//send type ---> file channel
+	protected FileChannel _fileChannel = null;
+	protected long _position;
+	protected long _byteLen;
+	
+	//send type ---> file
+	protected File _file = null;
+	
+	//send type ---> ByteBuffer
+	protected ByteBuffer _byteBuffer;
+	
+	
 	
 	public int getSessionId() {
 		return _sessionId;
@@ -47,6 +65,33 @@ public class TcpWriteEvent implements ITask {
 		_sessionId = sessionId;
 		_writeKey = writeKey;
 		_msgs = msgs;
+	}
+	
+	public TcpWriteEvent(
+			int sessionId,
+			SelectionKey writeKey,
+			FileChannel fileChannel, long position, long byteLen
+			) {
+		_sessionId = sessionId;
+		_writeKey = writeKey;
+		
+		_fileChannel = fileChannel;
+		_position = position;
+		_byteLen = byteLen;
+	}
+	
+	public TcpWriteEvent(
+			int sessionId,
+			File file) {
+		_sessionId = sessionId;
+		_file = file;
+	}
+	
+	public TcpWriteEvent(
+			int sessionId,
+			ByteBuffer byteBuffer) {
+		_sessionId = sessionId;
+		_byteBuffer = byteBuffer;
 	}
 	
 	@Override
@@ -78,7 +123,7 @@ public class TcpWriteEvent implements ITask {
 					while(_msg.getByteBuffer().hasRemaining()) {
 						socketChannel.write(_msg.getByteBuffer());
 					}
-				} else {
+				} else if(_msgs != null) {
 					ByteBuffer[] bufferArray = new ByteBuffer[_msgs.size()];
 					
 					Iterator<? extends IByteBuff> iterMsgs = _msgs.iterator();
@@ -98,6 +143,21 @@ public class TcpWriteEvent implements ITask {
 					while(bufferArray[bufferArray.length - 1].hasRemaining()) {
 						socketChannel.write(bufferArray);
 					}
+				} else if(_fileChannel != null) {
+					_fileChannel.transferTo(_position, _byteLen, socketChannel);
+				} else if(_file != null) {
+					FileInputStream fis = new FileInputStream(_file);
+					FileChannel fileChannel = fis.getChannel();
+					try {
+						fileChannel.transferTo(0, _file.length(), socketChannel);
+					} finally {
+						fileChannel.close();
+						fis.close();
+					}
+				} else if (_byteBuffer != null) {
+					socketChannel.write(_byteBuffer);
+				} else {
+					logger.error("Unknown sending type.");
 				}
 			}
 		} catch(CancelledKeyException e) {
@@ -121,7 +181,7 @@ public class TcpWriteEvent implements ITask {
 			} catch(Throwable e) {
 				logger.error(null, e);
 			}
-		} else {
+		} else if(_msgs != null) {
 			Iterator<? extends IByteBuff> iterMsgs = _msgs.iterator();
 			while(iterMsgs.hasNext()) {
 				try {

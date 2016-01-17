@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.channels.CancelledKeyException;
+import java.nio.channels.FileChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
@@ -408,6 +409,12 @@ public class TcpServer implements IServer {
 		@Override
 		public void sendMessage(MessageList<? extends IByteBuff> msgs) {
 			_writeEventThreadPool.execute(new TcpWriteEvent(_sessionId, _writeKey, msgs));
+		}
+		
+		@Override
+		public void sendMessage(FileChannel fileChannel, long position,
+				long byteLen) {
+			_writeEventThreadPool.execute(new TcpWriteEvent(_sessionId, _writeKey, fileChannel, position, byteLen));
 		}
 		
 	}

@@ -1,5 +1,7 @@
 package com.beef.easytcp.base.handler;
 
+import java.nio.channels.FileChannel;
+
 import com.beef.easytcp.base.IByteBuff;
 
 public interface ITcpReplyMessageHandler {
@@ -21,5 +23,7 @@ public interface ITcpReplyMessageHandler {
 	public void sendMessage(IByteBuff msg);
 	
 	public void sendMessage(MessageList<? extends IByteBuff> msgs);
+	
+	public void sendMessage(FileChannel fileChannel, long position, long byteLen);
 	
 }

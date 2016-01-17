@@ -1,18 +1,26 @@
 package com.beef.easytcp.client;
 
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
 import java.nio.channels.CancelledKeyException;
 import java.nio.channels.ClosedSelectorException;
+import java.nio.channels.FileChannel;
 import java.nio.channels.NoConnectionPendingException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import org.apache.log4j.Logger;
 
 import com.beef.easytcp.base.ByteBuff;
 import com.beef.easytcp.base.IByteBuff;
@@ -30,10 +38,18 @@ import com.beef.easytcp.base.handler.TcpWriteEventThread;
 import com.beef.easytcp.server.TcpException;
 import com.beef.easytcp.util.thread.TaskLoopThread;
 
-public class AsyncTcpClient implements ITcpClient {
+public class AsyncTcpClient implements ITcpClient {	
+	private final static Logger logger = Logger.getLogger(AsyncTcpClient.class);
+
 	protected final static long SLEEP_PERIOD = 1;
 	
-	protected TcpClientConfig _config;
+	protected final TcpClientConfig _config;
+//	protected ByteBuff _byteBuffForRead;
+//	protected ByteBuff _byteBuffForWrite;
+	protected final ByteBufferPool _bufferPool;
+	protected final boolean _connectInSyncMode;
+	
+	protected CountDownLatch _connectLatch;
 
 	protected SocketChannel _socketChannel = null;
 
@@ -51,28 +67,29 @@ public class AsyncTcpClient implements ITcpClient {
 	//protected ITcpEventHandlerFactory _eventHandlerFactory;
 	protected volatile ITcpEventHandler _eventHandler;
 	
-//	protected ByteBuff _byteBuffForRead;
-//	protected ByteBuff _byteBuffForWrite;
-	protected final ByteBufferPool _bufferPool;
-	
 	protected int _sessionId = 0;
 	
 	protected ExecutorService _ioThreadPool;
 	protected TaskLoopThread<TcpReadEvent> _readEventThread;
 	protected TcpWriteEventThread _writeEventThread;
-	
-	/**
-	 * 
-	 * @param host
-	 * @param port
-	 * @param connectTimeout in millisecond
-	 */
+
 	public AsyncTcpClient(
 			TcpClientConfig tcpConfig, 
 			//int sessionId, 
 			//ITcpEventHandlerFactory eventHandlerFactory,
 			//int byteBufferPoolSize
 			ByteBufferPool byteBufferPool
+			) {
+		this(tcpConfig, byteBufferPool, true);
+	}
+	
+	public AsyncTcpClient(
+			TcpClientConfig tcpConfig, 
+			//int sessionId, 
+			//ITcpEventHandlerFactory eventHandlerFactory,
+			//int byteBufferPoolSize
+			ByteBufferPool byteBufferPool,
+			boolean connectInSyncMode
 			) {
 		//_sessionId = sessionId;
 		_config = tcpConfig;
@@ -92,6 +109,8 @@ public class AsyncTcpClient implements ITcpClient {
 				byteBufferPoolConfig, isAllocateDirect, _config.getReceiveBufferSize());
 		*/
 		_bufferPool = byteBufferPool;
+		
+		_connectInSyncMode = connectInSyncMode;
 	}
 	
 	public void setEventHandler(ITcpEventHandler eventHandler) {
@@ -135,6 +154,8 @@ public class AsyncTcpClient implements ITcpClient {
 		_ioThreadPool.execute(new ConnectThread());
 
 		//connect ------------------------------
+		_connectLatch = new CountDownLatch(1);
+		
 		_connectBeginTime = System.currentTimeMillis();
 		boolean connectReady = _socketChannel.connect(
 				new InetSocketAddress(_config.getHost(), _config.getPort()));
@@ -142,10 +163,13 @@ public class AsyncTcpClient implements ITcpClient {
 			finishConnect();
 		}
 		
-		waitConnect(_config.getConnectTimeoutMS());
+		if(_connectInSyncMode) {
+			waitConnect(_config.getConnectTimeoutMS() * 2);
+		}
 	}
 	
 	protected boolean waitConnect(long timeout) {
+		/*
 		final int sleepTime = 10;
 		int waitTime = 0;
 		while(waitTime <= timeout) {
@@ -160,6 +184,14 @@ public class AsyncTcpClient implements ITcpClient {
 			}
 		}
 		
+		return _connected;
+		*/
+		
+		try {
+			_connectLatch.await(timeout, TimeUnit.MILLISECONDS);
+		} catch (InterruptedException e) {
+			//do nothing
+		}
 		return _connected;
 	}
 	
@@ -277,6 +309,8 @@ public class AsyncTcpClient implements ITcpClient {
 		} catch(Throwable e) {
 			logError(e);
 			disconnect();
+		} finally {
+			_connectLatch.countDown();
 		}
 	}
 	
@@ -295,6 +329,11 @@ public class AsyncTcpClient implements ITcpClient {
 		@Override
 		public void sendMessage(MessageList<? extends IByteBuff> msgs) {
 			_writeEventThread.addTask(new TcpWriteEvent(_sessionId, _writeKey, msgs));
+		}
+		
+		@Override
+		public void sendMessage(FileChannel fileChannel, long position, long byteLen) {
+			_writeEventThread.addTask(new TcpWriteEvent(_sessionId, _writeKey, fileChannel, position, byteLen));
 		}
 		
 	};
@@ -385,8 +424,24 @@ public class AsyncTcpClient implements ITcpClient {
 				
 	}
 
-	public void send(IByteBuff msg) throws TcpException {
+	public void send(IByteBuff msg) {
 		_writeEventThread.addTask(new TcpWriteEvent(_sessionId, _writeKey, msg));
+	}
+	
+	public void send(MessageList<? extends IByteBuff> msgs) {
+		_writeEventThread.addTask(new TcpWriteEvent(_sessionId, _writeKey, msgs));
+	}
+
+	public void send(FileChannel fileChannel, long position, long byteLen) {
+		_writeEventThread.addTask(new TcpWriteEvent(_sessionId, _writeKey, fileChannel, position, byteLen));
+	}
+	
+	public void send(File file) {
+		_writeEventThread.addTask(new TcpWriteEvent(_sessionId, file));
+	}
+	
+	public void send(ByteBuffer byteBuffer) {
+		_writeEventThread.addTask(new TcpWriteEvent(_sessionId, byteBuffer));
 	}
 	
 	/*
@@ -448,6 +503,14 @@ public class AsyncTcpClient implements ITcpClient {
 		} catch(Throwable e) {
 			logError(e);
 		}
+		
+		if(_eventHandler != null) {
+			try {
+				_eventHandler.didDisconnect();
+			} catch(Throwable e) {
+				logError(e);
+			}
+		}
 	}
 
 	@Override
@@ -469,13 +532,16 @@ public class AsyncTcpClient implements ITcpClient {
 	}
 
 	protected static void logInfo(String msg) {
-		System.out.println(msg);
+		//System.out.println(msg);
+		logger.info(msg);
 	}
 	
 	protected static void logError(Throwable e) {
-		e.printStackTrace();
+		//e.printStackTrace();
+		logger.error(null, e);
 	}
 
+	/*
 	protected void clearSelectionKey(SelectionKey selectionKey) {
 		if(SocketChannelUtil.clearSelectionKey(selectionKey)) {
 			try {
@@ -501,16 +567,10 @@ public class AsyncTcpClient implements ITcpClient {
 				} catch(Throwable e) {
 					logError(e);
 				}
-				/*
-				try {
-					_eventHandler.destroy();
-				} catch(Throwable e) {
-					logError(e);
-				}
-				*/
 			}
 		}
 	}
+	*/
 	
 	protected static void closeSelector(Selector selector) throws IOException {
 		Set<SelectionKey> keySet = selector.selectedKeys();
