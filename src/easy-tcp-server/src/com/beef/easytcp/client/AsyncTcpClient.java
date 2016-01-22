@@ -437,11 +437,11 @@ public class AsyncTcpClient implements ITcpClient {
 	}
 	
 	public void send(File file) {
-		_writeEventThread.addTask(new TcpWriteEvent(_sessionId, file));
+		_writeEventThread.addTask(new TcpWriteEvent(_sessionId, _writeKey, file));
 	}
 	
 	public void send(ByteBuffer byteBuffer) {
-		_writeEventThread.addTask(new TcpWriteEvent(_sessionId, byteBuffer));
+		_writeEventThread.addTask(new TcpWriteEvent(_sessionId, _writeKey, byteBuffer));
 	}
 	
 	/*

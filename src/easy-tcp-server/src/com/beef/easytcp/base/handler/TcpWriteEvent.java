@@ -2,6 +2,8 @@ package com.beef.easytcp.base.handler;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
+import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.nio.channels.CancelledKeyException;
 import java.nio.channels.FileChannel;
@@ -82,15 +84,21 @@ public class TcpWriteEvent implements ITask {
 	
 	public TcpWriteEvent(
 			int sessionId,
+			SelectionKey writeKey,
 			File file) {
 		_sessionId = sessionId;
+		_writeKey = writeKey;
+
 		_file = file;
 	}
 	
 	public TcpWriteEvent(
 			int sessionId,
+			SelectionKey writeKey,
 			ByteBuffer byteBuffer) {
 		_sessionId = sessionId;
+		_writeKey = writeKey;
+
 		_byteBuffer = byteBuffer;
 	}
 	
@@ -144,14 +152,14 @@ public class TcpWriteEvent implements ITask {
 						socketChannel.write(bufferArray);
 					}
 				} else if(_fileChannel != null) {
-					_fileChannel.transferTo(_position, _byteLen, socketChannel);
+					//_fileChannel.transferTo(_position, _byteLen, socketChannel);
+					sendFromFileChannel(socketChannel, _fileChannel, _position, _byteLen);
 				} else if(_file != null) {
 					FileInputStream fis = new FileInputStream(_file);
-					FileChannel fileChannel = fis.getChannel();
 					try {
-						fileChannel.transferTo(0, _file.length(), socketChannel);
+						//fis.getChannel().transferTo(0, _file.length(), socketChannel);
+						sendFromFileChannel(socketChannel, fis.getChannel(), 0, _file.length());
 					} finally {
-						fileChannel.close();
 						fis.close();
 					}
 				} else if (_byteBuffer != null) {
@@ -165,6 +173,28 @@ public class TcpWriteEvent implements ITask {
 			logger.error(null, e);
 		} catch(Throwable e) {
 			logger.error(null, e);
+		}
+	}
+	
+	private static void sendFromFileChannel(
+			SocketChannel socketChannel, 
+			FileChannel src, long position, long length) throws IOException {
+		long bufferSize = socketChannel.socket().getSendBufferSize();
+		
+		long offset = position;
+		long remainder = length;
+		long writeLen;
+		while(remainder > 0) {
+			writeLen = Math.min(remainder, bufferSize);
+			
+//			if( != writeLen) {
+//				throw new RuntimeException("transfer failed.");
+//			}
+			
+			writeLen = src.transferTo(offset, writeLen, socketChannel);
+			
+			remainder -= writeLen;
+			offset += writeLen;
 		}
 	}
 
