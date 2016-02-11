@@ -3,6 +3,7 @@ package com.beef.easytcp.client;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.Thread.State;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.CancelledKeyException;
@@ -518,6 +519,28 @@ public class AsyncTcpClient implements ITcpClient {
 		return isRealConnected()
 				&& _connected
 				;
+	}
+	
+	/**
+	 * 
+	 * @param maxWaitMS max wait time in milliseconds
+	 * @return true:all sending tasks are completed    false:otherwise
+	 * @throws InterruptedException 
+	 */
+	public boolean waitForSending(int maxWaitMS) throws InterruptedException {
+		long didSleepTime = 0;
+		long sleepInterval = Math.min(10, maxWaitMS);
+		
+		while(didSleepTime <= maxWaitMS) {
+			if(_writeEventThread.getState() != State.RUNNABLE) {
+				return true;
+			}
+			
+			Thread.sleep(sleepInterval);
+			didSleepTime += sleepInterval;
+		}
+		
+		return false;
 	}
 	
 	protected boolean isRealConnected() {
