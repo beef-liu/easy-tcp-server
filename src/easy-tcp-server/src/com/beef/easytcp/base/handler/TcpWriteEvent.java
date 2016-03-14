@@ -163,7 +163,9 @@ public class TcpWriteEvent implements ITask {
 						fis.close();
 					}
 				} else if (_byteBuffer != null) {
-					socketChannel.write(_byteBuffer);
+					while(_byteBuffer.hasRemaining()) {
+						socketChannel.write(_byteBuffer);
+					}
 				} else {
 					logger.error("Unknown sending type.");
 				}
