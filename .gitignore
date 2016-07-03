@@ -13,6 +13,8 @@ data-origin-test-web/
 data-origin-util/
 backup/
 src/data-origin-generator/webapp/
+.recommenders
+.gitignore
 
 # Mobile Tools for Java (J2ME)
 .mtj.tmp/

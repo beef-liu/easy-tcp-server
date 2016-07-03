@@ -74,6 +74,14 @@ public class AsyncTcpClient implements ITcpClient {
 	protected TaskLoopThread<TcpReadEvent> _readEventThread;
 	protected TcpWriteEventThread _writeEventThread;
 
+	public int getSessionId() {
+		return _sessionId;
+	}
+	
+	public SelectionKey getWriteKey() {
+		return _writeKey;
+	}
+	
 	public AsyncTcpClient(
 			TcpClientConfig tcpConfig, 
 			//int sessionId, 
@@ -444,6 +452,12 @@ public class AsyncTcpClient implements ITcpClient {
 	public void send(ByteBuffer byteBuffer) {
 		_writeEventThread.addTask(new TcpWriteEvent(_sessionId, _writeKey, byteBuffer));
 	}
+	
+	public void send(TcpWriteEvent writeEvent) {
+		_writeEventThread.addTask(writeEvent);
+	}
+	
+	
 	
 	/*
 	public int send(ByteBuffer buffer) throws IOException {
