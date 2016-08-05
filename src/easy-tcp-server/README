@@ -1,0 +1,2 @@
+This tcp server is based on java.nio.channels.ServerSocketChannel.(NIO)
+Require JDK 6+

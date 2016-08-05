@@ -1,0 +1,2 @@
+This tcp server is based on java.nio.channels.AsynchronousServerSocketChannel.(AIO)
+Require JDK 7+.
