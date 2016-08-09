@@ -14,6 +14,10 @@ import java.nio.channels.FileChannel;
  */
 public class AsyncWriteEvent4File extends AsyncWriteEvent4FileChannel {
 
+    public AsyncWriteEvent4File(File data) throws FileNotFoundException {
+        this(data, 0, data.length());
+    }
+
     public AsyncWriteEvent4File(File data, long position, long byteLen) throws FileNotFoundException {
         super((new FileInputStream(data)).getChannel(), position, byteLen);
     }

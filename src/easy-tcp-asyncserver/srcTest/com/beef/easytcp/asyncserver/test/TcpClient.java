@@ -105,14 +105,13 @@ public class TcpClient implements ITcpClient {
     }
 
     public int receive(ByteBuffer buffer) throws IOException {
-        connect();
+        //connect();
 
         return _readableChannel.read(buffer);
     }
 
     public int receive(byte[] buffer, int offset, int readMaxLen) throws IOException {
-    	connect();
-    	
+    	//connect();
     	return _socket.getInputStream().read(buffer, offset, readMaxLen);
     }
 	

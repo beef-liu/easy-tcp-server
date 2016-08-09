@@ -31,6 +31,8 @@ public class AsyncTcpSession implements IAsyncSession {
     private final Queue<IAsyncWriteEvent> _writeEventQueue = new LinkedTransferQueue<IAsyncWriteEvent>();
     private final AtomicReference<IAsyncWriteEvent> _curWriteEvent = new AtomicReference<IAsyncWriteEvent>();
 
+    private boolean _didDispatchEventOfDidConnect = false;
+    
     public int getSessionId() {
         return _sessionId;
     }
@@ -45,17 +47,6 @@ public class AsyncTcpSession implements IAsyncSession {
         _sessionId = sessionId;
         _eventHandler = eventHandler;
         _byteBuffProvider = byteBuffProvider;
-
-
-        //notify
-        try {
-            _eventHandler.didConnect(
-                    _replyMsgHandler,
-                    _workChannel.getRemoteAddress()
-            );
-        } catch (Throwable e) {
-            logger.error(null, e);
-        }
     }
 
     @Override
@@ -75,6 +66,17 @@ public class AsyncTcpSession implements IAsyncSession {
 
     @Override
     public void resumeReadLoop() {
+    	if(_didDispatchEventOfDidConnect) {
+            try {
+                _eventHandler.didConnect(
+                        _replyMsgHandler,
+                        _workChannel.getRemoteAddress()
+                );
+            } catch (Throwable e) {
+                logger.error(null, e);
+            }
+    	}
+    	
         IByteBuff buff = _byteBuffProvider.createBuffer();
         try {
             buff.getByteBuffer().clear();

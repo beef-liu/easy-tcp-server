@@ -1,6 +1,7 @@
 package com.beef.easytcp.asyncserver;
 
 import com.beef.easytcp.asyncserver.handler.AsyncTcpSession;
+import com.beef.easytcp.asyncserver.handler.IAsyncSession;
 import com.beef.easytcp.asyncserver.handler.IByteBuffProvider;
 import com.beef.easytcp.asyncserver.io.IAsyncWriteEvent;
 import com.beef.easytcp.base.IByteBuff;
@@ -36,7 +37,7 @@ public class AsyncTcpServer implements IServer {
     protected boolean _isAllocateDirect = false;
 
     protected boolean _isBufferPoolAssigned = false;
-    protected ByteBufferPool _bufferPool;
+    protected IByteBuffProvider _byteBuffProvider = null;
     protected ITcpEventHandlerFactory _eventHandlerFactory;
 
     protected AsynchronousChannelGroup _channelGroup = null;
@@ -66,11 +67,11 @@ public class AsyncTcpServer implements IServer {
             TcpServerConfig tcpServerConfig,
             boolean isAllocateDirect,
             ITcpEventHandlerFactory eventHandlerFactory,
-            ByteBufferPool bufferPool
+            IByteBuffProvider byteBuffProvider
     ) {
         this(tcpServerConfig, isAllocateDirect, eventHandlerFactory);
 
-        _bufferPool = bufferPool;
+        _byteBuffProvider = byteBuffProvider;
         _isBufferPoolAssigned = true;
     }
 
@@ -112,6 +113,12 @@ public class AsyncTcpServer implements IServer {
             logger.error(null, e);
         }
 
+        try {
+            _byteBuffProvider.close();
+        } catch (Throwable e) {
+            logger.error(null, e);
+        }
+
         logger.info("AsyncTcpServer shutdown done <<<<<");
     }
 
@@ -123,6 +130,10 @@ public class AsyncTcpServer implements IServer {
         }
     }
 
+    public IAsyncSession getSession(int sessionId) {
+        return _sessionMap.get(sessionId);
+    }
+
     private void startTcpServer() throws IOException {
         initByteBufferPool();
 
@@ -130,6 +141,8 @@ public class AsyncTcpServer implements IServer {
     }
 
     private void initServerSocket() throws IOException {
+        _sessionMap.clear();
+
         //channel group
         int totalThreadCount = _tcpServerConfig.getSocketIOThreadCount()
                 + _tcpServerConfig.getReadEventThreadCount()
@@ -184,8 +197,19 @@ public class AsyncTcpServer implements IServer {
             //byteBufferPoolConfig.setSoftMinEvictableIdleTimeMillis(_softMinEvictableIdleTimeMillis);
             //byteBufferPoolConfig.setTestOnBorrow(_testOnBorrow);
 
-            _bufferPool = new ByteBufferPool(
+            final ByteBufferPool bufferPool = new ByteBufferPool(
                     byteBufferPoolConfig, _isAllocateDirect, bufferByteSize);
+            _byteBuffProvider = new IByteBuffProvider() {
+                @Override
+                public IByteBuff createBuffer() {
+                    return bufferPool.borrowObject();
+                }
+
+                @Override
+                public void close() throws IOException {
+                    bufferPool.close();
+                }
+            };
         }
     }
 
@@ -247,13 +271,6 @@ public class AsyncTcpServer implements IServer {
         _sessionMap.put(sessionId, session);
         session.resumeReadLoop();
     }
-
-    private IByteBuffProvider _byteBuffProvider = new IByteBuffProvider() {
-        @Override
-        public IByteBuff createBuffer() {
-            return _bufferPool.borrowObject();
-        }
-    };
 
     private class MyTcpEventHandler implements ITcpEventHandler {
         private final int _sessionId;
