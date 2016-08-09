@@ -454,6 +454,7 @@ public class TcpServer implements IServer {
 				socketChannel.configureBlocking(false);
 				socketChannel.socket().setSendBufferSize(_tcpServerConfig.getSocketSendBufferSize());
 				socketChannel.socket().setReceiveBufferSize(_tcpServerConfig.getSocketReceiveBufferSize());
+				socketChannel.socket().setTcpNoDelay(_tcpServerConfig.isTcpNoDelay());
 				
 				int clientSelectorIndex = Math.abs(
 						_clientSelectorCount.getAndIncrement() % _readSelectors.length);

@@ -23,6 +23,8 @@ public class TcpServerConfig {
 	private int socketReceiveBufferSize = 65536;
 	
 	private int socketSendBufferSize = 65536;
+	
+	private boolean tcpNoDelay = true;
 
 	public String getHost() {
 		return host;
@@ -110,6 +112,14 @@ public class TcpServerConfig {
 
 	public void setWriteEventThreadCount(int writeEventThreadCount) {
 		this.writeEventThreadCount = writeEventThreadCount;
+	}
+
+	public boolean isTcpNoDelay() {
+		return tcpNoDelay;
+	}
+
+	public void setTcpNoDelay(boolean tcpNoDelay) {
+		this.tcpNoDelay = tcpNoDelay;
 	}
 
 
