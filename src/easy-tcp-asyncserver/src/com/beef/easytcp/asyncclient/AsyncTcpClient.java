@@ -83,10 +83,6 @@ public class AsyncTcpClient implements ITcpClient {
                 StandardSocketOptions.SO_KEEPALIVE,
                 _config.isKeepAlive()
         );
-        _socketChannel.setOption(
-                StandardSocketOptions.SO_LINGER,
-                0
-        );
 
 
         _socketChannel.connect(
@@ -144,6 +140,7 @@ public class AsyncTcpClient implements ITcpClient {
                     _eventHandler,
                     _byteBuffProvider
             );
+            _session.resumeReadLoop();
         }
 
         @Override

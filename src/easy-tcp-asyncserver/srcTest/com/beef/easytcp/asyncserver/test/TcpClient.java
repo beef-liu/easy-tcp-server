@@ -15,8 +15,8 @@ public class TcpClient implements ITcpClient {
 
 	protected TcpClientConfig _config;
 	protected Socket _socket;
-    protected WritableByteChannel _writableChannel;
-    protected ReadableByteChannel _readableChannel;
+//    protected WritableByteChannel _writableChannel;
+//    protected ReadableByteChannel _readableChannel;
 	
 	
 	public TcpClient(TcpClientConfig tcpConfig) {
@@ -32,7 +32,7 @@ public class TcpClient implements ITcpClient {
 			_socket.setKeepAlive(_config.isKeepAlive());
 			_socket.setTcpNoDelay(_config.isTcpNoDelay());
 			
-			_socket.setSoLinger(true, 0);
+			//_socket.setSoLinger(true, _config.getSoTimeoutMS());
 			
 			_socket.setReceiveBufferSize(_config.getReceiveBufferSize());
 			_socket.setSendBufferSize(_config.getSendBufferSize());
@@ -43,8 +43,8 @@ public class TcpClient implements ITcpClient {
 					new InetSocketAddress(_config.getHost(), _config.getPort()), 
 					_config.getConnectTimeoutMS());
 
-            _readableChannel = Channels.newChannel(_socket.getInputStream());
-            _writableChannel = Channels.newChannel(_socket.getOutputStream());
+            //_readableChannel = Channels.newChannel(_socket.getInputStream());
+            //_writableChannel = Channels.newChannel(_socket.getOutputStream());
 		}
     }
 
@@ -93,7 +93,8 @@ public class TcpClient implements ITcpClient {
     	connect();
 
         while(buffer.hasRemaining()) {
-            _writableChannel.write(buffer);
+            //_writableChannel.write(buffer);
+        	Channels.newChannel(_socket.getOutputStream()).write(buffer);
         }
     }
     
@@ -106,8 +107,8 @@ public class TcpClient implements ITcpClient {
 
     public int receive(ByteBuffer buffer) throws IOException {
         //connect();
-
-        return _readableChannel.read(buffer);
+        //return _readableChannel.read(buffer);
+    	return Channels.newChannel(_socket.getInputStream()).read(buffer);
     }
 
     public int receive(byte[] buffer, int offset, int readMaxLen) throws IOException {

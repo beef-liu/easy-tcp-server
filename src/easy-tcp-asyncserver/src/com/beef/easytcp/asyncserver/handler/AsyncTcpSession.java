@@ -5,6 +5,7 @@ import com.beef.easytcp.asyncserver.io.AsyncWriteEvent4FileChannel;
 import com.beef.easytcp.asyncserver.io.AsyncWriteEvent4MsgList;
 import com.beef.easytcp.asyncserver.io.IAsyncWriteEvent;
 import com.beef.easytcp.base.IByteBuff;
+import com.beef.easytcp.base.buffer.PooledByteBuffer;
 import com.beef.easytcp.base.handler.ITcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpReplyMessageHandler;
 import com.beef.easytcp.base.handler.MessageList;
@@ -66,7 +67,8 @@ public class AsyncTcpSession implements IAsyncSession {
 
     @Override
     public void resumeReadLoop() {
-    	if(_didDispatchEventOfDidConnect) {
+    	if(!_didDispatchEventOfDidConnect) {
+    		_didDispatchEventOfDidConnect = true;
             try {
                 _eventHandler.didConnect(
                         _replyMsgHandler,
@@ -154,6 +156,8 @@ public class AsyncTcpSession implements IAsyncSession {
     private CompletionHandler<Integer, IAsyncWriteEvent> _writeCompletionHandler = new CompletionHandler<Integer, IAsyncWriteEvent>() {
         @Override
         public void completed(Integer nBytes, IAsyncWriteEvent writeEvent) {
+        	logger.debug("write completed. nBytes:" + nBytes);
+        	
             if(writeEvent.isWrittenDone()) {
                 //current event is done, fetch next event to write
                 finishWriteEvent(writeEvent);
@@ -173,6 +177,8 @@ public class AsyncTcpSession implements IAsyncSession {
     private CompletionHandler<Integer, IByteBuff> _readCompletionHandler = new CompletionHandler<Integer, IByteBuff>() {
         @Override
         public void completed(Integer nBytes, IByteBuff buff) {
+        	logger.debug("read completed. nBytes:" + nBytes);
+        	
             //reading error
             if(nBytes < 0) {
                 failed(new ClosedChannelException(), buff);
@@ -188,13 +194,24 @@ public class AsyncTcpSession implements IAsyncSession {
             } catch (Throwable e) {
                 logger.error(null, e);
             } finally {
-                buff.destroy();
+                if(PooledByteBuffer.class.isAssignableFrom(buff.getClass())
+                        && ((PooledByteBuffer)buff).isDeferredDestroy()
+                        ) {
+                    //do not destroy, destroy should be invoked by whom invoked setDeferredDestroy()
+                } else {
+                    buff.destroy();
+                }
             }
         }
 
         @Override
         public void failed(Throwable exc, IByteBuff buff) {
-            logger.error(null, exc);
+        	Class<? extends Throwable> eCls = exc.getClass();
+        	if(eCls == ClosedChannelException.class) {
+        		logger.debug("Socket channel closed.");
+        	} else {
+                logger.error(null, exc);
+        	}
 
             try {
                 //return IByteBuff to pool

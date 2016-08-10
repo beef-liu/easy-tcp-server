@@ -8,6 +8,10 @@ import com.beef.easytcp.base.IPooledObject;
 
 public class PooledByteBuffer extends ByteBuff implements IPooledObject {
 	protected IPool<PooledByteBuffer> _backPool = null;
+
+	private boolean _deferredDestroy = false;
+
+
 	
 	public PooledByteBuffer(boolean isAllocateDirect, int bufferByteSize) {
 		super(isAllocateDirect, bufferByteSize);
@@ -23,6 +27,8 @@ public class PooledByteBuffer extends ByteBuff implements IPooledObject {
 			_backPool = null;
 			_backPool = (IPool<PooledByteBuffer>) pool;
 		}
+		
+		_deferredDestroy = false;
 	}
 
 	@Override
@@ -49,5 +55,16 @@ public class PooledByteBuffer extends ByteBuff implements IPooledObject {
 	public void destroy() {
 		returnToPool();
 	}
-	
+
+    /**
+     * if true, destroy() should be invoked by whom invoked setDeferredDestroy().
+     * @return
+     */
+    public boolean isDeferredDestroy() {
+        return _deferredDestroy;
+    }
+
+    public void setDeferredDestroy(boolean deferredDestroy) {
+        _deferredDestroy = deferredDestroy;
+    }
 }

@@ -5,6 +5,9 @@ import com.beef.easytcp.asyncserver.test.proxy.config.BackendSetting;
 import com.beef.easytcp.asyncserver.test.proxy.config.TcpProxyServerConfig;
 import com.beef.easytcp.client.TcpClientConfig;
 import com.beef.easytcp.server.TcpServerConfig;
+
+import java.util.concurrent.TimeUnit;
+
 import org.apache.log4j.Logger;
 
 /**
@@ -15,10 +18,10 @@ public class TestTcpProxyServer {
     private final static Logger logger = Logger.getLogger(TestTcpProxyServer.class);
 
     public static void main(String[] args) {
-        int maxConnection = 20000;
+        int maxConnection = 10000;
         int ioThreadCount = 4;
         int readEventThreadCount = 4;
-        int SocketReceiveBufferSize = 64 * 1024;
+        int SocketReceiveBufferSize = 16 * 1024;
 
         boolean isAllocateDirect = true;
 
@@ -56,7 +59,7 @@ public class TestTcpProxyServer {
                 tcpClientConfig.setSoTimeoutMS(1000);
                 tcpClientConfig.setReceiveBufferSize(SocketReceiveBufferSize);
                 tcpClientConfig.setSendBufferSize(SocketReceiveBufferSize);
-                tcpClientConfig.setTcpNoDelay(true);
+                tcpClientConfig.setTcpNoDelay(false);
 
                 backendSetting.setTcpClientConfig(tcpClientConfig);
             }
@@ -65,16 +68,34 @@ public class TestTcpProxyServer {
             config.setBackendSetting(backendSetting);
         }
 
-        TcpProxyServer proxyServer = new TcpProxyServer(
+        final TcpProxyServer proxyServer = new TcpProxyServer(
                 config
         );
+        
+		//handle kill signal ----------------------
+        Runtime.getRuntime().addShutdownHook(new Thread() {
+        	@Override
+        	public void run() {
+        		try {
+        			logger.info(" received kill signal. ------");
+        			//System.out.println(getProgramName() + " received kill signal. ------");
+        			
+        			proxyServer.close();
+        		} catch(Throwable e) {
+        			e.printStackTrace();
+        			logger.error(null, e);
+        		}
+        	}
+        });
 
-        try {
-            Thread.sleep(300 * 1000);
-            proxyServer.close();
-        } catch (Throwable e) {
-            logger.error(null, e);
-        }
+        proxyServer.awaitTermination(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
+        
+//        try {
+//            Thread.sleep(300 * 1000);
+//            proxyServer.close();
+//        } catch (Throwable e) {
+//            logger.error(null, e);
+//        }
         
         logger.debug("TestTcpProxyServer end --------");
     }
