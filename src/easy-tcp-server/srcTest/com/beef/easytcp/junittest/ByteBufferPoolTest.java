@@ -1,7 +1,5 @@
 package com.beef.easytcp.junittest;
 
-import static org.junit.Assert.*;
-
 import java.util.ArrayList;
 import java.util.List;
 

@@ -1,9 +1,27 @@
 package com.beef.easytcp.asyncserver;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.net.StandardSocketOptions;
+import java.nio.channels.AsynchronousChannelGroup;
+import java.nio.channels.AsynchronousCloseException;
+import java.nio.channels.AsynchronousServerSocketChannel;
+import java.nio.channels.AsynchronousSocketChannel;
+import java.nio.channels.CompletionHandler;
+import java.util.Collection;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import org.apache.log4j.Logger;
+
 import com.beef.easytcp.asyncserver.handler.AsyncTcpSession;
 import com.beef.easytcp.asyncserver.handler.IAsyncSession;
 import com.beef.easytcp.asyncserver.handler.IByteBuffProvider;
-import com.beef.easytcp.asyncserver.io.IAsyncWriteEvent;
 import com.beef.easytcp.base.IByteBuff;
 import com.beef.easytcp.base.buffer.ByteBufferPool;
 import com.beef.easytcp.base.handler.ITcpEventHandler;
@@ -12,35 +30,19 @@ import com.beef.easytcp.base.handler.ITcpReplyMessageHandler;
 import com.beef.easytcp.base.handler.MessageList;
 import com.beef.easytcp.server.IServer;
 import com.beef.easytcp.server.TcpServerConfig;
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
-import org.apache.log4j.Logger;
-
-import java.io.Closeable;
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
-import java.net.StandardSocketOptions;
-import java.nio.ByteBuffer;
-import java.nio.channels.*;
-import java.util.Collection;
-import java.util.Map;
-import java.util.Queue;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 public class AsyncTcpServer implements IServer {
     private final static Logger logger = Logger.getLogger(AsyncTcpServer.class);
 
-    protected TcpServerConfig _tcpServerConfig;
+    protected final TcpServerConfig _tcpServerConfig;
+    protected final boolean _isAllocateDirect;
+    protected final ITcpEventHandlerFactory _eventHandlerFactory;
 
-    protected boolean _isAllocateDirect = false;
-
-    protected boolean _isBufferPoolAssigned = false;
+    protected final boolean _isByteBuffProviderFromArgs;
     protected IByteBuffProvider _byteBuffProvider = null;
-    protected ITcpEventHandlerFactory _eventHandlerFactory;
-
+    protected final boolean _isChannelGroupFromArgs;
     protected AsynchronousChannelGroup _channelGroup = null;
+    
     protected AsynchronousServerSocketChannel _serverSocketChannel = null;
 
     //private AtomicInteger _clientSelectorCount = new AtomicInteger(0);
@@ -55,34 +57,52 @@ public class AsyncTcpServer implements IServer {
             ITcpEventHandlerFactory eventHandlerFactory
             //boolean isSyncInvokeDidReceivedMsg
     ) {
-        _tcpServerConfig = tcpServerConfig;
-
-        //if use ByteBuffer.allocateDirect(), then there is no backing array which means ByteBuffer.array() is null.
-        _isAllocateDirect = isAllocateDirect;
-
-        _eventHandlerFactory = eventHandlerFactory;
+        this(tcpServerConfig, isAllocateDirect, eventHandlerFactory, null, null);
     }
 
     public AsyncTcpServer(
             TcpServerConfig tcpServerConfig,
             boolean isAllocateDirect,
             ITcpEventHandlerFactory eventHandlerFactory,
-            IByteBuffProvider byteBuffProvider
+            IByteBuffProvider byteBuffProvider,
+            AsynchronousChannelGroup channelGroup
     ) {
-        this(tcpServerConfig, isAllocateDirect, eventHandlerFactory);
+        _tcpServerConfig = tcpServerConfig;
 
+        //if use ByteBuffer.allocateDirect(), then there is no backing array which means ByteBuffer.array() is null.
+        _isAllocateDirect = isAllocateDirect;
+
+        _eventHandlerFactory = eventHandlerFactory;
+
+        if(byteBuffProvider != null) {
+            _isByteBuffProviderFromArgs = true;
+        } else {
+        	_isByteBuffProviderFromArgs = false;
+        }
         _byteBuffProvider = byteBuffProvider;
-        _isBufferPoolAssigned = true;
+
+        if(channelGroup != null) {
+        	_isChannelGroupFromArgs = true;
+        } else {
+        	_isChannelGroupFromArgs = false;
+        }
+        _channelGroup = channelGroup;
+        
+    }
+
+    public AsynchronousChannelGroup getChannelGroup() {
+        return _channelGroup;
     }
 
     @Override
     public void start() {
-        logger.info("AsyncTcpServer start >>>>>");
+        logger.info("AsyncTcpServer start ----------");
 
         try {
             startTcpServer();
         } catch(Throwable e) {
             logger.error("start()", e);
+            shutdown();
         }
 
         logger.info("AsyncTcpServer start done <<<<<");
@@ -90,7 +110,7 @@ public class AsyncTcpServer implements IServer {
 
     @Override
     public void shutdown() {
-        logger.info("AsyncTcpServer shutdow >>>>>");
+        logger.info("AsyncTcpServer shutdow -----------");
 
         //close all work channels
         try {
@@ -109,17 +129,35 @@ public class AsyncTcpServer implements IServer {
         //close server channel
         try {
             _serverSocketChannel.close();
+            logger.debug("_serverSocketChannel close ---");
         } catch (Throwable e) {
             logger.error(null, e);
         }
 
         try {
-            _byteBuffProvider.close();
+            if(!_isByteBuffProviderFromArgs) {
+                _byteBuffProvider.close();
+                logger.debug("_byteBuffProvider close ---");
+            }
         } catch (Throwable e) {
             logger.error(null, e);
         }
+        
+    	try {
+            if(!_isChannelGroupFromArgs) {
+            	_channelGroup.shutdown();
+                logger.debug("_channelGroup close ---");
+            }
+        } catch (Throwable e) {
+            logger.error(null, e);
+    	}
+
 
         logger.info("AsyncTcpServer shutdown done <<<<<");
+    }
+    
+    public boolean isServerChannelOpen() {
+    	return _serverSocketChannel.isOpen();
     }
 
     public void awaitTermination(long time, TimeUnit timeUnit) {
@@ -144,13 +182,20 @@ public class AsyncTcpServer implements IServer {
         _sessionMap.clear();
 
         //channel group
-        int totalThreadCount = _tcpServerConfig.getSocketIOThreadCount()
-                + _tcpServerConfig.getReadEventThreadCount()
-                + _tcpServerConfig.getWriteEventThreadCount()
-                ;
-        _channelGroup = AsynchronousChannelGroup.withThreadPool(
-                Executors.newFixedThreadPool(_tcpServerConfig.getConnectMaxCount())
-        );
+        if(!_isChannelGroupFromArgs) {
+        	/*
+            int totalThreadCount = _tcpServerConfig.getSocketIOThreadCount()
+                    + _tcpServerConfig.getReadEventThreadCount()
+                    + _tcpServerConfig.getWriteEventThreadCount()
+                    ;
+            _channelGroup = AsynchronousChannelGroup.withThreadPool(
+                    Executors.newFixedThreadPool(totalThreadCount)
+            );
+            */
+        	_channelGroup = AsynchronousChannelGroup.withThreadPool(
+        			Executors.newCachedThreadPool()
+        	);
+        }
 
         //channel open
         _serverSocketChannel = AsynchronousServerSocketChannel.open(_channelGroup);
@@ -179,7 +224,7 @@ public class AsyncTcpServer implements IServer {
     }
 
     private void initByteBufferPool() {
-        if(!_isBufferPoolAssigned) {
+        if(!_isByteBuffProviderFromArgs) {
             //init bytebuffer pool -----------------------------
             int bufferByteSize = _tcpServerConfig.getSocketReceiveBufferSize();
 //			ByteBufferPoolFactory byteBufferPoolFactory = new ByteBufferPoolFactory(
@@ -230,7 +275,11 @@ public class AsyncTcpServer implements IServer {
 
                 @Override
                 public void failed(Throwable e, Object attachment) {
-                    logger.error("ServerSocket accept failed", e);
+                	if(e.getClass() == AsynchronousCloseException.class) {
+                        logger.info("ServerSocketChannel closed");
+                	} else {
+                        logger.error("ServerSocket accept failed", e);
+                	}
                 }
 
             };

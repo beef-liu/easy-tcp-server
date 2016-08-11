@@ -1,29 +1,34 @@
 package com.beef.easytcp.asyncclient;
 
-import com.beef.easytcp.asyncserver.handler.AsyncTcpSession;
-import com.beef.easytcp.asyncserver.handler.IByteBuffProvider;
-import com.beef.easytcp.asyncserver.io.*;
-import com.beef.easytcp.base.IByteBuff;
-import com.beef.easytcp.base.handler.ITcpEventHandler;
-import com.beef.easytcp.base.handler.ITcpReplyMessageHandler;
-import com.beef.easytcp.base.handler.MessageList;
-import com.beef.easytcp.client.ITcpClient;
-import com.beef.easytcp.client.TcpClientConfig;
-import org.apache.log4j.Logger;
-
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousChannelGroup;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.nio.channels.CompletionHandler;
 import java.nio.channels.FileChannel;
-import java.util.concurrent.Executors;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import org.apache.log4j.Logger;
+
+import com.beef.easytcp.asyncserver.handler.AsyncTcpSession;
+import com.beef.easytcp.asyncserver.handler.IByteBuffProvider;
+import com.beef.easytcp.asyncserver.io.AsyncWriteEvent4ByteBuff;
+import com.beef.easytcp.asyncserver.io.AsyncWriteEvent4ByteBuffer;
+import com.beef.easytcp.asyncserver.io.AsyncWriteEvent4File;
+import com.beef.easytcp.asyncserver.io.AsyncWriteEvent4FileChannel;
+import com.beef.easytcp.asyncserver.io.AsyncWriteEvent4MsgList;
+import com.beef.easytcp.asyncserver.io.IAsyncWriteEvent;
+import com.beef.easytcp.base.IByteBuff;
+import com.beef.easytcp.base.handler.ITcpEventHandler;
+import com.beef.easytcp.base.handler.MessageList;
+import com.beef.easytcp.client.ITcpClient;
+import com.beef.easytcp.client.TcpClientConfig;
 
 /**
  * Created by XingGu_Liu on 16/8/9.
@@ -35,11 +40,14 @@ public class AsyncTcpClient implements ITcpClient {
 
     private final TcpClientConfig _config;
     private final IByteBuffProvider _byteBuffProvider;
+    private AsynchronousChannelGroup _channelGroup;
 
-    private AsynchronousSocketChannel _socketChannel;
+    private AsynchronousSocketChannel _socketChannel = null;
     private AsyncTcpSession _session;
 
     private ITcpEventHandler _eventHandler;
+
+    protected CountDownLatch _connectLatch;
 
     public void setEventHandler(ITcpEventHandler eventHandler) {
         _eventHandler = eventHandler;
@@ -53,17 +61,36 @@ public class AsyncTcpClient implements ITcpClient {
             TcpClientConfig config,
             IByteBuffProvider byteBuffProvider
     ) throws IOException {
-        _config = config;
-        _byteBuffProvider = byteBuffProvider;
-
-        _socketChannel = AsynchronousSocketChannel.open(
-                AsynchronousChannelGroup.withThreadPool(Executors.newCachedThreadPool())
-        );
+        this(config, byteBuffProvider, null);
     }
 
+    public AsyncTcpClient(
+            TcpClientConfig config,
+            IByteBuffProvider byteBuffProvider,
+            AsynchronousChannelGroup channelGroup
+    ) throws IOException {
+        _config = config;
+
+        _byteBuffProvider = byteBuffProvider;
+        _channelGroup = channelGroup;
+    }
+
+    public void syncConnect() throws IOException {
+        _connectLatch = new CountDownLatch(1);
+
+        connect();
+
+        try {
+            _connectLatch.await(_config.getConnectTimeoutMS(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            //do nothing
+        }
+    }
 
     @Override
     public void connect() throws IOException {
+        _socketChannel = AsynchronousSocketChannel.open(_channelGroup);
+
         _socketChannel.setOption(
                 StandardSocketOptions.SO_REUSEADDR, true
         );
@@ -141,6 +168,10 @@ public class AsyncTcpClient implements ITcpClient {
                     _byteBuffProvider
             );
             _session.resumeReadLoop();
+
+            if(_connectLatch != null && _connectLatch.getCount() > 0) {
+                _connectLatch.countDown();
+            }
         }
 
         @Override

@@ -1,6 +1,7 @@
 package com.beef.easytcp.base.buffer;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.beef.easytcp.base.ByteBuff;
 import com.beef.easytcp.base.IPool;
@@ -8,8 +9,9 @@ import com.beef.easytcp.base.IPooledObject;
 
 public class PooledByteBuffer extends ByteBuff implements IPooledObject {
 	protected IPool<PooledByteBuffer> _backPool = null;
+	
 
-	private boolean _deferredDestroy = false;
+	private AtomicBoolean _deferredDestroy = new AtomicBoolean(false);
 
 
 	
@@ -24,15 +26,16 @@ public class PooledByteBuffer extends ByteBuff implements IPooledObject {
 	@Override
 	public void setPoolReference(IPool<? extends IPooledObject> pool) {
 		if(_backPool != pool) {
-			_backPool = null;
+			//_backPool = null;
 			_backPool = (IPool<PooledByteBuffer>) pool;
 		}
-		
-		_deferredDestroy = false;
+
+		_deferredDestroy.set(false);
 	}
 
 	@Override
 	public void returnToPool() {
+		/* deprecated 
 		synchronized (this) {
 			if(_backPool != null) {
 				final IPool<PooledByteBuffer> pool = _backPool; 
@@ -40,13 +43,17 @@ public class PooledByteBuffer extends ByteBuff implements IPooledObject {
 				pool.returnObject(this);
 			}
 		}
+		*/
+		_backPool.returnObject(this);
 	}
 	
 	@Override
 	public ByteBuffer getByteBuffer() {
+		/* deprecated
 		if(_backPool == null) {
 			throw new RuntimeException("PooledByteBuffer has already been returned to pool.");
 		}
+		*/
 		
 		return super.getByteBuffer();
 	}
@@ -61,10 +68,10 @@ public class PooledByteBuffer extends ByteBuff implements IPooledObject {
      * @return
      */
     public boolean isDeferredDestroy() {
-        return _deferredDestroy;
+        return _deferredDestroy.get();
     }
 
     public void setDeferredDestroy(boolean deferredDestroy) {
-        _deferredDestroy = deferredDestroy;
+        _deferredDestroy.set(deferredDestroy);
     }
 }

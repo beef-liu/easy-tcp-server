@@ -1,5 +1,16 @@
 package com.beef.easytcp.asyncserver.test.proxy;
 
+import java.io.Closeable;
+import java.io.IOException;
+import java.net.SocketAddress;
+import java.net.SocketTimeoutException;
+import java.nio.channels.AsynchronousChannelGroup;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import org.apache.log4j.Logger;
+
 import com.beef.easytcp.asyncclient.AsyncTcpClient;
 import com.beef.easytcp.asyncserver.AsyncTcpServer;
 import com.beef.easytcp.asyncserver.handler.IAsyncSession;
@@ -14,14 +25,6 @@ import com.beef.easytcp.base.handler.ITcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
 import com.beef.easytcp.base.handler.ITcpReplyMessageHandler;
 import com.beef.easytcp.base.handler.MessageList;
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
-import org.apache.log4j.Logger;
-
-import java.io.Closeable;
-import java.io.IOException;
-import java.net.SocketAddress;
-import java.net.SocketTimeoutException;
-import java.util.concurrent.TimeUnit;
 
 public class TcpProxyServer implements Closeable {
     private final static Logger logger = Logger.getLogger(TcpProxyServer.class);
@@ -31,12 +34,24 @@ public class TcpProxyServer implements Closeable {
     private AsyncTcpServer _tcpServer;
 
     private IByteBuffProvider _byteBuffProvider;
+    
+    private AsynchronousChannelGroup _channelGroup;
 
-    public TcpProxyServer(TcpProxyServerConfig config) {
+    public TcpProxyServer(
+    		TcpProxyServerConfig config
+    		) throws IOException {
         _config = config;
         boolean isAllocateDirect = true;
+        initByteBuffProvider(isAllocateDirect);
 
-        initByteBuffProvider(true);
+        try {
+            _channelGroup = AsynchronousChannelGroup.withThreadPool(
+            		Executors.newCachedThreadPool()
+            		);
+        } catch (IOException e) {
+        	close();
+        	throw e;
+        }
 
         _tcpServer = new AsyncTcpServer(
                 _config.getTcpServerConfig(),
@@ -48,28 +63,48 @@ public class TcpProxyServer implements Closeable {
                     	return new MyTcpEventHandlerOnAsyncTcpClient(sessionId);
                     }
                 },
-                _byteBuffProvider
+                _byteBuffProvider,
+                _channelGroup
         );
-        _tcpServer.start();
     }
     
     public void awaitTermination(long time, TimeUnit timeUnit) {
     	_tcpServer.awaitTermination(time, timeUnit);
     }
+    
+    public void start() {
+        _tcpServer.start();
+    }
+    
+    public void shutdown() {
+        _tcpServer.shutdown();
+    }
 
     @Override
     public void close() throws IOException {
-        try {
-            _tcpServer.shutdown();
-        } catch (Throwable e) {
-            logger.error(null, e);
-        }
+    	logger.info("TcpProxyServer closing -------");
 
-        try {
+    	try {
+    		if(_tcpServer.isServerChannelOpen()) {
+    			_tcpServer.shutdown();
+    		}
+    	} catch (Throwable e) {
+    		logger.error(null, e);
+    	}
+    	
+    	try {
+            _channelGroup.shutdown();
+    	} catch (Throwable e) {
+    		logger.error(null, e);
+    	}
+
+    	try {
             _byteBuffProvider.close();
-        } catch (Throwable e) {
-            logger.error(null, e);
-        }
+    	} catch (Throwable e) {
+    		logger.error(null, e);
+    	}
+    	
+    	logger.info("TcpProxyServer closed <<<<<<<<");
     }
 
     private void initByteBuffProvider(boolean isAllocateDirect) {
@@ -116,10 +151,12 @@ public class TcpProxyServer implements Closeable {
 
                 _tcpClient = new AsyncTcpClient(
                         _config.getBackendSetting().getTcpClientConfig(),
-                        _byteBuffProvider
+                        _byteBuffProvider,
+                        _channelGroup
                 );
                 _tcpClient.setEventHandler(_clientEventHandler);
-                _tcpClient.connect();
+                //_tcpClient.connect();
+                _tcpClient.syncConnect();
             } catch (Throwable e) {
                 logger.error(null, e);
             }
@@ -136,6 +173,9 @@ public class TcpProxyServer implements Closeable {
 
             @Override
             public void didReceiveMessage(ITcpReplyMessageHandler replyMessageHandler, MessageList<? extends IByteBuff> messageList) {
+            	for(IByteBuff buff : messageList) {
+            		didReceiveMessage(replyMessageHandler, buff);
+            	}
             }
 
             @Override
@@ -259,6 +299,7 @@ public class TcpProxyServer implements Closeable {
         	long beginTime = System.currentTimeMillis();
         	long totalReadLen = 0;
             int readByteLen;
+        	logger.debug("receiveResponseFromBackend start -----------------" );
             while (true) {
                 IByteBuff buff = _byteBuffProvider.createBuffer();
                 buff.getByteBuffer().clear();
@@ -283,7 +324,7 @@ public class TcpProxyServer implements Closeable {
                         //send back
                         buff.getByteBuffer().flip();
                         _session.addWriteEvent(new AsyncWriteEvent4ByteBuff(buff));
-                        logger.debug("add data to write. dataLen:" + readByteLen);
+                        //logger.debug("add data to write. dataLen:" + readByteLen);
                     }
                 } catch (SocketTimeoutException e) {
                 	buff.destroy();
@@ -294,6 +335,7 @@ public class TcpProxyServer implements Closeable {
                     break;
                 }
             }
+        	logger.debug("receiveResponseFromBackend end   <<<<<<<<<<<<<<<<<" );
         }
 
     }

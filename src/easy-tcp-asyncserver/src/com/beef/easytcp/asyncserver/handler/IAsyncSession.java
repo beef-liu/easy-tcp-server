@@ -1,8 +1,8 @@
 package com.beef.easytcp.asyncserver.handler;
 
-import com.beef.easytcp.asyncserver.io.IAsyncWriteEvent;
-
 import java.io.Closeable;
+
+import com.beef.easytcp.asyncserver.io.IAsyncWriteEvent;
 
 /**
  * Created by XingGu_Liu on 16/8/9.

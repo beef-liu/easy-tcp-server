@@ -2,8 +2,6 @@ package com.beef.easytcp.base.handler;
 
 import java.net.SocketAddress;
 
-import com.beef.easytcp.base.IByteBuff;
-
 public interface ITcpEventHandler extends ITcpReadEventHandler {
 
 	/**

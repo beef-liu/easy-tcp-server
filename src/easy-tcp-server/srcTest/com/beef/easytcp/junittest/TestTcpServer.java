@@ -6,7 +6,6 @@ import java.net.SocketAddress;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.util.Iterator;
-import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
@@ -17,7 +16,6 @@ import com.beef.easytcp.base.handler.ITcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
 import com.beef.easytcp.base.handler.ITcpReplyMessageHandler;
 import com.beef.easytcp.base.handler.MessageList;
-import com.beef.easytcp.client.AsyncTcpClient;
 import com.beef.easytcp.client.TcpClientConfig;
 import com.beef.easytcp.client.pool.AsyncTcpClientPool;
 import com.beef.easytcp.client.pool.PooledAsyncTcpClient;
@@ -37,7 +35,7 @@ public class TestTcpServer {
 
 	private final static Logger logger = Logger.getLogger(TestTcpServer.class);
 	
-	private AtomicLong _logSeq = new AtomicLong(0);
+	//private AtomicLong _logSeq = new AtomicLong(0);
 	
 	private SyncTcpClientPool _tcpClientPool;
 	private AsyncTcpClientPool _asyncTcpClientPool;
@@ -196,7 +194,7 @@ public class TestTcpServer {
 		
 		
 		public TcpServerEventHandlerBySyncClient() {
-			final int curConnectionCount = _server.getCurrentConnectionCount();
+			//final int curConnectionCount = _server.getCurrentConnectionCount();
 			//if((curConnectionCount % 50) == 0) 
 //			{
 //				logger.debug("Tcp Server connection count:" + curConnectionCount);
@@ -548,6 +546,7 @@ public class TestTcpServer {
 		return cnt;
 	}
 	
+	/*
 	private static boolean isResponseEndsCorrectly(byte[] buffer, int contentLen) {
 		if(contentLen < 2) {
 			return false;
@@ -559,6 +558,7 @@ public class TestTcpServer {
 			}
 		}
 	}
+	*/
 	
 	//Async client is more complex than sync client.
 	private class TcpServerEventHandlerByAsyncClient implements ITcpEventHandler {

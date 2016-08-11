@@ -2,7 +2,6 @@ package com.beef.easytcp.client;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.lang.Thread.State;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -18,25 +17,19 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
 
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
 
-import com.beef.easytcp.base.ByteBuff;
 import com.beef.easytcp.base.IByteBuff;
 import com.beef.easytcp.base.SocketChannelUtil;
 import com.beef.easytcp.base.buffer.ByteBufferPool;
-import com.beef.easytcp.base.buffer.ByteBufferPoolFactory;
 import com.beef.easytcp.base.buffer.PooledByteBuffer;
 import com.beef.easytcp.base.handler.ITcpEventHandler;
-import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
 import com.beef.easytcp.base.handler.ITcpReplyMessageHandler;
 import com.beef.easytcp.base.handler.MessageList;
 import com.beef.easytcp.base.handler.TcpReadEvent;
 import com.beef.easytcp.base.handler.TcpWriteEvent;
 import com.beef.easytcp.base.handler.TcpWriteEventThread;
-import com.beef.easytcp.server.TcpException;
 import com.beef.easytcp.util.thread.TaskLoopThread;
 
 public class AsyncTcpClient implements ITcpClient {	

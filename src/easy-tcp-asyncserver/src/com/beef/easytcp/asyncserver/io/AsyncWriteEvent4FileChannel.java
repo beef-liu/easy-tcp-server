@@ -1,13 +1,10 @@
 package com.beef.easytcp.asyncserver.io;
 
-import com.beef.easytcp.base.IByteBuff;
-import com.beef.easytcp.base.handler.MessageList;
-
-import java.io.Closeable;
-import java.io.File;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.*;
+import java.nio.channels.AsynchronousByteChannel;
+import java.nio.channels.Channels;
+import java.nio.channels.CompletionHandler;
+import java.nio.channels.FileChannel;
 
 /**
  * Created by beef_in_jp on 16/8/7.

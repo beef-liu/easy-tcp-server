@@ -1,7 +1,6 @@
 package com.beef.easytcp.asyncserver.io;
 
 import java.io.Closeable;
-import java.io.IOException;
 import java.nio.channels.AsynchronousByteChannel;
 import java.nio.channels.CompletionHandler;
 

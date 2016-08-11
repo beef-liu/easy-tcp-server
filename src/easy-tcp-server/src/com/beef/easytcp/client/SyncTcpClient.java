@@ -3,7 +3,6 @@ package com.beef.easytcp.client;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.net.SocketTimeoutException;
 
 public class SyncTcpClient implements ITcpClient {
 	protected TcpClientConfig _config;

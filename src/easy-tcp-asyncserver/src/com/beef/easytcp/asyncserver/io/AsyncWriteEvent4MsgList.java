@@ -1,17 +1,14 @@
 package com.beef.easytcp.asyncserver.io;
 
-import com.beef.easytcp.base.ByteBuff;
-import com.beef.easytcp.base.IByteBuff;
-import com.beef.easytcp.base.handler.MessageList;
-import org.apache.log4j.Logger;
-
-import java.io.Closeable;
-import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousByteChannel;
 import java.nio.channels.CompletionHandler;
-import java.nio.channels.FileChannel;
+
+import org.apache.log4j.Logger;
+
+import com.beef.easytcp.base.IByteBuff;
+import com.beef.easytcp.base.handler.MessageList;
 
 /**
  * Created by XingGu_Liu on 16/8/7.

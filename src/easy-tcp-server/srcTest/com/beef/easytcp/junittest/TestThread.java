@@ -1,9 +1,6 @@
 package com.beef.easytcp.junittest;
 
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
-
-import javax.sql.rowset.spi.SyncResolver;
 
 import org.junit.Test;
 

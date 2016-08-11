@@ -5,8 +5,6 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
-import java.nio.channels.ReadableByteChannel;
-import java.nio.channels.WritableByteChannel;
 
 import com.beef.easytcp.client.ITcpClient;
 import com.beef.easytcp.client.TcpClientConfig;
