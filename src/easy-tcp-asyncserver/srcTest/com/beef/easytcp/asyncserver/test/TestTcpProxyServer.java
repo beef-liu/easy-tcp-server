@@ -17,7 +17,7 @@ import com.beef.easytcp.server.TcpServerConfig;
 public class TestTcpProxyServer {
 
     private final static Logger logger = Logger.getLogger(TestTcpProxyServer.class);
-
+    
     public static void main(String[] args) {
     	try {
         	TcpProxyServerConfig config = buildConfig();

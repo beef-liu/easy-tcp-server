@@ -1,0 +1,2 @@
+This project used some classes supported since JDK 1.7 
+It is not included in the project easy-tcp-base since that is based on Classes since JDK 1.6
