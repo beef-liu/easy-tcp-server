@@ -9,5 +9,6 @@
 	<classpathentry kind="con" path="org.eclipse.jdt.junit.JUNIT_CONTAINER/4"/>
 	<classpathentry kind="lib" path="lib/easy-tcp-util.jar"/>
 	<classpathentry kind="lib" path="lib/easy-tcp-base.jar"/>
+	<classpathentry kind="lib" path="lib/easy-tcp-base-pool.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

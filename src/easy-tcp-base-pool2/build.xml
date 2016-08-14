@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project name="easy-tcp-base" default="generateJar" basedir=".">
+<project name="easy-tcp-base-pool2" default="generateJar" basedir=".">
 	<!-- Configure directories -->
 	<!-- 
 	<property name="jdk.dir"         value="C:\jdk1.6.0_20"/>
@@ -7,8 +7,8 @@
 	<property name="src.dir"         value="src"/>
 	<property name="bin.dir"         value="bin"/>
 	<property name="bintemp.dir"     value="binTemp"/>
-	<property name="jar.name"        value="easy-tcp-base.jar"/>
-	
+	<property name="jar.name"        value="easy-tcp-base-pool2.jar"/>
+
 	<!--
 	<target name="cleandir" description="clean the bin dir"> 
 		<delete dir="${bin.dir}"/> 

@@ -16,20 +16,21 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
 
 import com.beef.easytcp.asyncserver.handler.AsyncTcpSession;
 import com.beef.easytcp.asyncserver.handler.IAsyncSession;
 import com.beef.easytcp.asyncserver.handler.IByteBuffProvider;
 import com.beef.easytcp.base.IByteBuff;
-import com.beef.easytcp.base.buffer.ByteBufferPool;
+import com.beef.easytcp.base.buffer.ByteBufferPool2;
 import com.beef.easytcp.base.handler.ITcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
 import com.beef.easytcp.base.handler.ITcpReplyMessageHandler;
 import com.beef.easytcp.base.handler.MessageList;
 import com.beef.easytcp.server.IServer;
 import com.beef.easytcp.server.TcpServerConfig;
+
+import simplepool.base.BasePoolConfig;
 
 public class AsyncTcpServer implements IServer {
     private final static Logger logger = Logger.getLogger(AsyncTcpServer.class);
@@ -226,38 +227,47 @@ public class AsyncTcpServer implements IServer {
     private void initByteBufferPool() {
         if(!_isByteBuffProviderFromArgs) {
             //init bytebuffer pool -----------------------------
-            int bufferByteSize = _tcpServerConfig.getSocketReceiveBufferSize();
 //			ByteBufferPoolFactory byteBufferPoolFactory = new ByteBufferPoolFactory(
 //					_isAllocateDirect, bufferByteSize);
+            boolean isAllocateDirect = _isAllocateDirect;
+            int bufferByteSize = _tcpServerConfig.getSocketReceiveBufferSize();
+            
+            int minIdle = _tcpServerConfig.getConnectMaxCount();
+            int maxIdle = minIdle * 2;
+            int maxTotal = maxIdle * 2;
+            
 
-            GenericObjectPoolConfig byteBufferPoolConfig = new GenericObjectPoolConfig();
-            byteBufferPoolConfig.setMaxIdle(_tcpServerConfig.getConnectMaxCount());
-			/* old version
-			byteBufferPoolConfig.setMaxActive(_PoolMaxActive);
-			byteBufferPoolConfig.setMaxWait(_PoolMaxWait);
-			*/
-            byteBufferPoolConfig.setMaxTotal(_tcpServerConfig.getConnectMaxCount() * 2);
-            byteBufferPoolConfig.setMaxWaitMillis(1000);
-
-            //byteBufferPoolConfig.setSoftMinEvictableIdleTimeMillis(_softMinEvictableIdleTimeMillis);
-            //byteBufferPoolConfig.setTestOnBorrow(_testOnBorrow);
-
-            final ByteBufferPool bufferPool = new ByteBufferPool(
-                    byteBufferPoolConfig, _isAllocateDirect, bufferByteSize);
-            _byteBuffProvider = new IByteBuffProvider() {
-                @Override
-                public IByteBuff createBuffer() {
-                    return bufferPool.borrowObject();
-                }
-
-                @Override
-                public void close() throws IOException {
-                    bufferPool.close();
-                }
-            };
+            _byteBuffProvider = createDefaultByteBufferPool(bufferByteSize, isAllocateDirect, maxTotal, minIdle, maxIdle);
         }
     }
+    
+    public static IByteBuffProvider createDefaultByteBufferPool(
+    		int bufferByteSize, boolean isAllocateDirect,
+    		int maxTotal, int minIdle, int maxIdle
+    		) {
+        BasePoolConfig poolConfig = new BasePoolConfig();
+        poolConfig.setMaxIdle(maxIdle);
+        poolConfig.setMinIdle(minIdle);
+        poolConfig.setMaxTotal(maxTotal);
+        poolConfig.setTestWhileIdle(false);
+    	
+        final ByteBufferPool2 bufferPool = new ByteBufferPool2(
+        		poolConfig, isAllocateDirect, bufferByteSize
+        		);
+        return new IByteBuffProvider() {
+            @Override
+            public IByteBuff createBuffer() {
+                return bufferPool.borrowObject();
+            }
 
+            @Override
+            public void close() throws IOException {
+                bufferPool.close();
+            }
+        };
+    }
+
+    
     private CompletionHandler<AsynchronousSocketChannel, Object> _acceptCompletionHandler =
             new CompletionHandler<AsynchronousSocketChannel, Object>() {
 

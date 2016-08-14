@@ -8,7 +8,6 @@ import java.nio.channels.AsynchronousChannelGroup;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
 
 import com.beef.easytcp.asyncclient.AsyncTcpClient;
@@ -19,7 +18,6 @@ import com.beef.easytcp.asyncserver.io.AsyncWriteEvent4ByteBuff;
 import com.beef.easytcp.asyncserver.test.TcpClient;
 import com.beef.easytcp.asyncserver.test.proxy.config.TcpProxyServerConfig;
 import com.beef.easytcp.base.IByteBuff;
-import com.beef.easytcp.base.buffer.ByteBufferPool;
 import com.beef.easytcp.base.buffer.PooledByteBuffer;
 import com.beef.easytcp.base.handler.ITcpEventHandler;
 import com.beef.easytcp.base.handler.ITcpEventHandlerFactory;
@@ -41,8 +39,24 @@ public class TcpProxyServer implements Closeable {
     		TcpProxyServerConfig config
     		) throws IOException {
         _config = config;
+
         boolean isAllocateDirect = true;
-        initByteBuffProvider(isAllocateDirect);
+        
+        {
+            int bufferByteSize = _config.getTcpServerConfig().getSocketReceiveBufferSize();
+            
+            int minIdle = _config.getTcpServerConfig().getConnectMaxCount();
+            int maxIdle = _config.getTcpServerConfig().getConnectMaxCount() * 2;
+            int maxTotal = maxIdle * 2;
+        	
+            _byteBuffProvider = AsyncTcpServer.createDefaultByteBufferPool(
+            		bufferByteSize, 
+            		isAllocateDirect, 
+            		maxTotal, 
+            		minIdle, 
+            		maxIdle
+            		);
+        }
 
         try {
             _channelGroup = AsynchronousChannelGroup.withThreadPool(
@@ -105,32 +119,6 @@ public class TcpProxyServer implements Closeable {
     	}
     	
     	logger.info("TcpProxyServer closed <<<<<<<<");
-    }
-
-    private void initByteBuffProvider(boolean isAllocateDirect) {
-        int bufferByteSize = _config.getTcpServerConfig().getSocketReceiveBufferSize();
-
-        GenericObjectPoolConfig byteBufferPoolConfig = new GenericObjectPoolConfig();
-        byteBufferPoolConfig.setMaxIdle(_config.getTcpServerConfig().getConnectMaxCount());
-        byteBufferPoolConfig.setMaxTotal(_config.getTcpServerConfig().getConnectMaxCount() * 3);
-        byteBufferPoolConfig.setMaxWaitMillis(1000);
-
-        //byteBufferPoolConfig.setSoftMinEvictableIdleTimeMillis(_softMinEvictableIdleTimeMillis);
-        //byteBufferPoolConfig.setTestOnBorrow(_testOnBorrow);
-
-        final ByteBufferPool bufferPool = new ByteBufferPool(
-                byteBufferPoolConfig, isAllocateDirect, bufferByteSize);
-        _byteBuffProvider = new IByteBuffProvider() {
-            @Override
-            public IByteBuff createBuffer() {
-                return bufferPool.borrowObject();
-            }
-
-            @Override
-            public void close() throws IOException {
-                bufferPool.close();
-            }
-        };
     }
 
     private class MyTcpEventHandlerOnAsyncTcpClient implements ITcpEventHandler {
