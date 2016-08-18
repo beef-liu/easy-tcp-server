@@ -143,6 +143,8 @@ public class TcpProxyServer implements Closeable {
                         _channelGroup
                 );
                 _tcpClient.setEventHandler(_clientEventHandler);
+                _tcpClient.setAutoConnect(false);
+                
                 //_tcpClient.connect();
                 _tcpClient.syncConnect();
             } catch (Throwable e) {
@@ -157,6 +159,11 @@ public class TcpProxyServer implements Closeable {
 
             @Override
             public void didDisconnect() {
+            	try {
+                	_session.close();
+            	} catch (Throwable e) {
+            		logger.error(null, e);
+            	}
             }
 
             @Override

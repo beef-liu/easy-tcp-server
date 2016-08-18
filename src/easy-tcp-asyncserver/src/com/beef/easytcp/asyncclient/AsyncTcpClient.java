@@ -13,6 +13,7 @@ import java.nio.channels.FileChannel;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.log4j.Logger;
 
@@ -38,6 +39,7 @@ public class AsyncTcpClient implements ITcpClient {
 
     protected final static AtomicInteger _sessionIdSeed = new AtomicInteger(0);
 
+    
     private final TcpClientConfig _config;
     private final IByteBuffProvider _byteBuffProvider;
     private AsynchronousChannelGroup _channelGroup;
@@ -47,7 +49,9 @@ public class AsyncTcpClient implements ITcpClient {
 
     private ITcpEventHandler _eventHandler;
 
-    protected CountDownLatch _connectLatch;
+    private CountDownLatch _connectLatch = null;
+    private final ReentrantLock _connectLock = new ReentrantLock();
+    private volatile boolean _autoConnect = true;
 
     public void setEventHandler(ITcpEventHandler eventHandler) {
         _eventHandler = eventHandler;
@@ -56,6 +60,14 @@ public class AsyncTcpClient implements ITcpClient {
     public ITcpEventHandler getEventHandler() {
         return _eventHandler;
     }
+
+    public boolean isAutoConnect() {
+		return _autoConnect;
+	}
+    
+    public void setAutoConnect(boolean autoConnect) {
+		_autoConnect = autoConnect;
+	}
 
     public AsyncTcpClient(
             TcpClientConfig config,
@@ -76,15 +88,33 @@ public class AsyncTcpClient implements ITcpClient {
     }
 
     public void syncConnect() throws IOException {
-        _connectLatch = new CountDownLatch(1);
+    	if(isConnected()) {
+    		//already connected
+    		//logger.debug("syncConnect() already connected");
+    		return;
+    	}
 
-        connect();
-
-        try {
-            _connectLatch.await(_config.getConnectTimeoutMS(), TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            //do nothing
-        }
+    	_connectLock.lock();
+    	try {
+        	if(isConnected()) {
+        		//already connected
+        		//logger.debug("syncConnect() already connected");
+        		return;
+        	}
+    		
+    		_connectLatch = new CountDownLatch(1);
+    		
+    		//do connect
+            connect();
+    		
+            try {
+                _connectLatch.await(_config.getConnectTimeoutMS(), TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                //do nothing
+            }
+    	} finally {
+    		_connectLock.unlock();
+    	}
     }
 
     @Override
@@ -111,7 +141,6 @@ public class AsyncTcpClient implements ITcpClient {
                 _config.isKeepAlive()
         );
 
-
         _socketChannel.connect(
                 new InetSocketAddress(_config.getHost(), _config.getPort()),
                 null,
@@ -128,30 +157,54 @@ public class AsyncTcpClient implements ITcpClient {
 
     @Override
     public boolean isConnected() {
-        return _socketChannel.isOpen();
+        return _socketChannel != null && _socketChannel.isOpen();
     }
 
-    public void send(IAsyncWriteEvent writeEvent) {
+    public void send(IAsyncWriteEvent writeEvent) throws IOException {
+    	if(_autoConnect) {
+    		syncConnect();
+    	}
+    	
         _session.addWriteEvent(writeEvent);
     }
 
-    public void send(IByteBuff msg) {
+    public void send(IByteBuff msg) throws IOException {
+    	if(_autoConnect) {
+    		syncConnect();
+    	}
+    	
         _session.addWriteEvent(new AsyncWriteEvent4ByteBuff(msg));
     }
 
-    public void send(MessageList<? extends IByteBuff> msgs) {
+    public void send(MessageList<? extends IByteBuff> msgs) throws IOException {
+    	if(_autoConnect) {
+    		syncConnect();
+    	}
+    	
         _session.addWriteEvent(new AsyncWriteEvent4MsgList(msgs));
     }
 
-    public void send(FileChannel fileChannel, long position, long byteLen) {
+    public void send(FileChannel fileChannel, long position, long byteLen) throws IOException {
+    	if(_autoConnect) {
+    		syncConnect();
+    	}
+    	
         _session.addWriteEvent(new AsyncWriteEvent4FileChannel(fileChannel, position, byteLen));
     }
 
-    public void send(File file) throws FileNotFoundException {
+    public void send(File file) throws IOException {
+    	if(_autoConnect) {
+    		syncConnect();
+    	}
+    	
         _session.addWriteEvent(new AsyncWriteEvent4File(file));
     }
 
-    public void send(ByteBuffer byteBuffer) {
+    public void send(ByteBuffer byteBuffer) throws IOException {
+    	if(_autoConnect) {
+    		syncConnect();
+    	}
+    	
         _session.addWriteEvent(new AsyncWriteEvent4ByteBuffer(byteBuffer));
     }
 
@@ -169,8 +222,8 @@ public class AsyncTcpClient implements ITcpClient {
             );
             _session.resumeReadLoop();
 
-            if(_connectLatch != null && _connectLatch.getCount() > 0) {
-                _connectLatch.countDown();
+            if(_connectLatch != null) {
+            	_connectLatch.countDown();
             }
         }
 
