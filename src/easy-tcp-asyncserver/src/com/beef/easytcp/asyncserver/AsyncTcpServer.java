@@ -35,6 +35,14 @@ import simplepool.base.BasePoolConfig;
 public class AsyncTcpServer implements IServer {
     private final static Logger logger = Logger.getLogger(AsyncTcpServer.class);
 
+	static {
+		System.out.println(
+				AsyncTcpServer.class.getName() 
+				+ " VERSION:" + "1.0.0" 
+				+ " Date:" + "2016-08-18"
+				);
+	}
+    
     protected final TcpServerConfig _tcpServerConfig;
     protected final boolean _isAllocateDirect;
     protected final ITcpEventHandlerFactory _eventHandlerFactory;
