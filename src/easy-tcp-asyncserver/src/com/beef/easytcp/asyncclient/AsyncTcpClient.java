@@ -1,7 +1,6 @@
 package com.beef.easytcp.asyncclient;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.StandardSocketOptions;
