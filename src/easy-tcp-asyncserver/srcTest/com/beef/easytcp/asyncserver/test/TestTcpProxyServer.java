@@ -1,6 +1,8 @@
 package com.beef.easytcp.asyncserver.test;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.log4j.Logger;
@@ -70,7 +72,7 @@ public class TestTcpProxyServer {
         proxyServer.close();
     }
     
-    private static TcpProxyServerConfig buildConfig() {
+    public static TcpProxyServerConfig buildConfig() {
         int maxConnection = 10000;
         int ioThreadCount = 4;
         int readEventThreadCount = 4;
@@ -115,8 +117,9 @@ public class TestTcpProxyServer {
                 backendSetting.setTcpClientConfig(tcpClientConfig);
             }
 
-
-            config.setBackendSetting(backendSetting);
+            List<BackendSetting> backendSettingList = new ArrayList<>();
+            backendSettingList.add(backendSetting);
+            config.setBackendList(backendSettingList);
         }
         
         return config;

@@ -7,6 +7,7 @@ import java.net.SocketTimeoutException;
 import java.nio.channels.AsynchronousChannelGroup;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.log4j.Logger;
 
@@ -16,6 +17,7 @@ import com.beef.easytcp.asyncserver.handler.IAsyncSession;
 import com.beef.easytcp.asyncserver.handler.IByteBuffProvider;
 import com.beef.easytcp.asyncserver.io.AsyncWriteEvent4ByteBuff;
 import com.beef.easytcp.asyncserver.test.TcpClient;
+import com.beef.easytcp.asyncserver.test.proxy.config.BackendSetting;
 import com.beef.easytcp.asyncserver.test.proxy.config.TcpProxyServerConfig;
 import com.beef.easytcp.base.IByteBuff;
 import com.beef.easytcp.base.buffer.PooledByteBuffer;
@@ -122,12 +124,15 @@ public class TcpProxyServer implements Closeable {
     }
 
     private class MyTcpEventHandlerOnAsyncTcpClient implements ITcpEventHandler {
-        private int _sessionId;
+        private final int _sessionId;
         private AsyncTcpClient _tcpClient;
         private IAsyncSession _session;
+        private final BackendSetting _backendSetting;
 
         public MyTcpEventHandlerOnAsyncTcpClient(int sessionId) {
             _sessionId = sessionId;
+            int backendIndex = sessionId % _config.getBackendList().size();
+            _backendSetting = _config.getBackendList().get(backendIndex);
         }
 
 
@@ -138,7 +143,7 @@ public class TcpProxyServer implements Closeable {
                 _session = _tcpServer.getSession(_sessionId);
 
                 _tcpClient = new AsyncTcpClient(
-                        _config.getBackendSetting().getTcpClientConfig(),
+                		_backendSetting.getTcpClientConfig(),
                         _byteBuffProvider,
                         _channelGroup
                 );
@@ -236,13 +241,21 @@ public class TcpProxyServer implements Closeable {
         }
     }
 
+    /**
+     * Another way
+     * @author XingGu_Liu
+     *
+     */
     private class MyTcpEventHandlerOnSyncTcpClient implements ITcpEventHandler {
-        private int _sessionId;
+        private final int _sessionId;
         private TcpClient _tcpClient;
         private IAsyncSession _session;
+        private BackendSetting _backendSetting;
 
         public MyTcpEventHandlerOnSyncTcpClient(int sessionId) {
             _sessionId = sessionId;
+            int backendIndex = sessionId % _config.getBackendList().size();
+            _backendSetting = _config.getBackendList().get(backendIndex);
         }
 
         @Override
@@ -251,7 +264,7 @@ public class TcpProxyServer implements Closeable {
             try {
                 _session = _tcpServer.getSession(_sessionId);
 
-                _tcpClient = new TcpClient(_config.getBackendSetting().getTcpClientConfig());
+                _tcpClient = new TcpClient(_backendSetting.getTcpClientConfig());
                 //_tcpClient = new AsyncTcpClient(_config.getBackendSetting().getTcpClientConfig(), _byteBuffProvider);
                 _tcpClient.connect();
             } catch (Throwable e) {
@@ -306,7 +319,7 @@ public class TcpProxyServer implements Closeable {
                         
                         long elapsedTime = System.currentTimeMillis() - beginTime;
                         if(totalReadLen == 0 
-                        		&& elapsedTime <= _config.getBackendSetting().getTcpClientConfig().getSoTimeoutMS()
+                        		&& elapsedTime <= _backendSetting.getTcpClientConfig().getSoTimeoutMS()
                         	) {
                         	Thread.sleep(0, 1000);
                         	continue;

@@ -1,5 +1,7 @@
 package com.beef.easytcp.asyncserver.test.proxy.config;
 
+import java.util.List;
+
 import com.beef.easytcp.server.TcpServerConfig;
 
 /**
@@ -9,7 +11,8 @@ public class TcpProxyServerConfig {
 
     private TcpServerConfig _tcpServerConfig;
 
-    private BackendSetting _backendSetting;
+    //private BackendSetting _backendSetting;
+    private List<BackendSetting> _backendList;
 
 
     public TcpServerConfig getTcpServerConfig() {
@@ -20,11 +23,12 @@ public class TcpProxyServerConfig {
         _tcpServerConfig = tcpServerConfig;
     }
 
-    public BackendSetting getBackendSetting() {
-        return _backendSetting;
-    }
+	public List<BackendSetting> getBackendList() {
+		return _backendList;
+	}
 
-    public void setBackendSetting(BackendSetting backendSetting) {
-        _backendSetting = backendSetting;
-    }
+	public void setBackendList(List<BackendSetting> backendList) {
+		_backendList = backendList;
+	}
+    
 }
