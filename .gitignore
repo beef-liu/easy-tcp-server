@@ -5,6 +5,7 @@
 .metadata/
 RemoteSystemsTempFiles/
 .DS_Store/
+.DS_Store
 Servers/
 bin/
 upload_img/
