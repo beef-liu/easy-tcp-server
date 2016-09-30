@@ -7,6 +7,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.CancelledKeyException;
 import java.nio.channels.ClosedSelectorException;
+import java.nio.channels.ConnectionPendingException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.NoConnectionPendingException;
 import java.nio.channels.SelectionKey;
@@ -17,6 +18,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.log4j.Logger;
 
@@ -56,7 +58,8 @@ public class AsyncTcpClient implements ITcpClient {
 	protected SelectionKey _writeKey = null;
 
 	protected volatile long _connectBeginTime;
-	protected volatile boolean _connected = false;
+	//protected volatile boolean _connected = false;
+	protected AtomicBoolean _connected = new AtomicBoolean(false);
 	
 	//protected ITcpEventHandlerFactory _eventHandlerFactory;
 	protected volatile ITcpEventHandler _eventHandler;
@@ -129,45 +132,61 @@ public class AsyncTcpClient implements ITcpClient {
 			//logInfo("connect() isConnected() true");
 			return;
 		}
-		
-		_connected = false;
 
-		//create socket
-		_socketChannel = SocketChannel.open();
-		_socketChannel.socket().setSoTimeout(_config.getSoTimeoutMS());
+		try {
+			synchronized (this) {
+				if(_connectLatch != null && _connectLatch.getCount() == 1) {
+					//in connecting
+					return;
+				}
+				_connectLatch = new CountDownLatch(1);
+				
+				if(_socketChannel != null && _socketChannel.isConnectionPending()) {
+					//in connecting
+					return;
+				}
+			}
+			
+			//_connected = false;
+			_connected.compareAndSet(true, false);
 
-		_socketChannel.configureBlocking(false);
-		
-		_socketChannel.socket().setReceiveBufferSize(_config.getReceiveBufferSize());
-		_socketChannel.socket().setSendBufferSize(_config.getSendBufferSize());
-		
-		//_socketChannel.socket().setReuseAddress(_config.isReuseAddress());
-		_socketChannel.socket().setKeepAlive(_config.isKeepAlive());
-		_socketChannel.socket().setTcpNoDelay(_config.isTcpNoDelay());
-		
-		_socketChannel.socket().setSoLinger(true, 0);
-		
-		_connectSelector = Selector.open();
-		_socketChannel.register(
-				_connectSelector, SelectionKey.OP_CONNECT 
-				);
-		
-		_ioThreadPool = Executors.newCachedThreadPool();
-		_ioThreadPool.execute(new ConnectThread());
+			//create socket
+			_socketChannel = SocketChannel.open();
+			_socketChannel.socket().setSoTimeout(_config.getSoTimeoutMS());
 
-		//connect ------------------------------
-		_connectLatch = new CountDownLatch(1);
-		
-		_connectBeginTime = System.currentTimeMillis();
-		boolean connectReady = _socketChannel.connect(
-				new InetSocketAddress(_config.getHost(), _config.getPort()));
-		if(connectReady) {
-			finishConnect();
+			_socketChannel.configureBlocking(false);
+			
+			_socketChannel.socket().setReceiveBufferSize(_config.getReceiveBufferSize());
+			_socketChannel.socket().setSendBufferSize(_config.getSendBufferSize());
+			
+			//_socketChannel.socket().setReuseAddress(_config.isReuseAddress());
+			_socketChannel.socket().setKeepAlive(_config.isKeepAlive());
+			_socketChannel.socket().setTcpNoDelay(_config.isTcpNoDelay());
+			
+			_socketChannel.socket().setSoLinger(true, 0);
+			
+			_connectSelector = Selector.open();
+			_socketChannel.register(
+					_connectSelector, SelectionKey.OP_CONNECT 
+					);
+			
+			_ioThreadPool = Executors.newCachedThreadPool();
+			_ioThreadPool.execute(new ConnectThread());
+
+			//connect ------------------------------
+			
+			_connectBeginTime = System.currentTimeMillis();
+			boolean connectReady = _socketChannel.connect(
+					new InetSocketAddress(_config.getHost(), _config.getPort()));
+			if(connectReady) {
+				finishConnect();
+			}
+		} finally {
+			if(_connectInSyncMode) {
+				waitConnect(_config.getConnectTimeoutMS() * 2);
+			}
 		}
 		
-		if(_connectInSyncMode) {
-			waitConnect(_config.getConnectTimeoutMS() * 2);
-		}
 	}
 	
 	protected boolean waitConnect(long timeout) {
@@ -190,11 +209,15 @@ public class AsyncTcpClient implements ITcpClient {
 		*/
 		
 		try {
-			_connectLatch.await(timeout, TimeUnit.MILLISECONDS);
+			boolean countDownDone = _connectLatch.await(timeout, TimeUnit.MILLISECONDS);
+			if(!countDownDone) {
+				_connectLatch.countDown();
+			}
 		} catch (InterruptedException e) {
 			//do nothing
 		}
-		return _connected;
+		
+		return _connected.get();
 	}
 	
 	protected class ConnectThread implements Runnable {
@@ -301,12 +324,14 @@ public class AsyncTcpClient implements ITcpClient {
 				//_eventHandler = _eventHandlerFactory.createHandler(_sessionId);
 				//_workSelectionKey.attach(_eventHandler);
 				
-				_connected = true;
+				//_connected = true;
+				_connected.set(true);
 				if(_eventHandler != null) {
 					_eventHandler.didConnect(_replyMsgHandler, _socketChannel.socket().getRemoteSocketAddress());
 				}
 			} else {
-				_connected = false;
+				//_connected = false;
+				_connected.compareAndSet(true, false);
 			}
 		} catch(Throwable e) {
 			logError(e);
@@ -524,7 +549,7 @@ public class AsyncTcpClient implements ITcpClient {
 	@Override
 	public boolean isConnected() {
 		return isRealConnected()
-				&& _connected
+				&& _connected.get()
 				;
 	}
 	
