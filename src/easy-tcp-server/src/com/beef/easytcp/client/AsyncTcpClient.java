@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.log4j.Logger;
 
 import com.beef.easytcp.base.IByteBuff;
+import com.beef.easytcp.base.IPool;
 import com.beef.easytcp.base.SocketChannelUtil;
 import com.beef.easytcp.base.buffer.ByteBufferPool;
 import com.beef.easytcp.base.buffer.PooledByteBuffer;
@@ -42,7 +43,10 @@ public class AsyncTcpClient implements ITcpClient {
 	protected final TcpClientConfig _config;
 //	protected ByteBuff _byteBuffForRead;
 //	protected ByteBuff _byteBuffForWrite;
-	protected final ByteBufferPool _bufferPool;
+	
+	//protected final ByteBufferPool _bufferPool;
+	protected final IPool<PooledByteBuffer> _bufferPool;
+	
 	protected final boolean _connectInSyncMode;
 	
 	protected CountDownLatch _connectLatch;
@@ -83,7 +87,8 @@ public class AsyncTcpClient implements ITcpClient {
 			//int sessionId, 
 			//ITcpEventHandlerFactory eventHandlerFactory,
 			//int byteBufferPoolSize
-			ByteBufferPool byteBufferPool
+			//ByteBufferPool byteBufferPool
+			IPool<PooledByteBuffer> byteBufferPool
 			) {
 		this(tcpConfig, byteBufferPool, true);
 	}
@@ -93,7 +98,8 @@ public class AsyncTcpClient implements ITcpClient {
 			//int sessionId, 
 			//ITcpEventHandlerFactory eventHandlerFactory,
 			//int byteBufferPoolSize
-			ByteBufferPool byteBufferPool,
+			//ByteBufferPool byteBufferPool,
+			IPool<PooledByteBuffer> byteBufferPool,
 			boolean connectInSyncMode
 			) {
 		//_sessionId = sessionId;

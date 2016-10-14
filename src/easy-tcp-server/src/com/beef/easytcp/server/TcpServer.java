@@ -15,10 +15,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.commons.pool2.impl.BaseObjectPoolConfig;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
 
 import com.beef.easytcp.base.IByteBuff;
+import com.beef.easytcp.base.IPool;
 import com.beef.easytcp.base.SocketChannelUtil;
 import com.beef.easytcp.base.buffer.ByteBufferPool;
 import com.beef.easytcp.base.buffer.PooledByteBuffer;
@@ -75,7 +77,9 @@ public class TcpServer implements IServer {
 	protected LoopTaskThreadFixedPool<TcpWriteEvent> _writeEventThreadPool = null;
 	
 	protected boolean _isBufferPoolAssigned = false;
-	protected ByteBufferPool _bufferPool;
+	//protected ByteBufferPool _bufferPool;
+	protected IPool<PooledByteBuffer> _bufferPool;
+	
 	protected ITcpEventHandlerFactory _eventHandlerFactory;
 	
 	protected ExecutorService _serverThreadPool;
@@ -117,7 +121,7 @@ public class TcpServer implements IServer {
 			TcpServerConfig tcpServerConfig, 
 			boolean isAllocateDirect,
 			ITcpEventHandlerFactory eventHandlerFactory,
-			ByteBufferPool bufferPool
+			IPool<PooledByteBuffer> bufferPool
 			) {
 		this(tcpServerConfig, isAllocateDirect, eventHandlerFactory);
 		
@@ -238,18 +242,14 @@ public class TcpServer implements IServer {
 			
 			GenericObjectPoolConfig byteBufferPoolConfig = new GenericObjectPoolConfig();
 			byteBufferPoolConfig.setMaxIdle(_tcpServerConfig.getConnectMaxCount());
-			/* old version
-			byteBufferPoolConfig.setMaxActive(_PoolMaxActive);
-			byteBufferPoolConfig.setMaxWait(_PoolMaxWait);
-			*/
 			byteBufferPoolConfig.setMaxTotal(_tcpServerConfig.getConnectMaxCount() * 2);
 			byteBufferPoolConfig.setMaxWaitMillis(1000);
 			
 			//byteBufferPoolConfig.setSoftMinEvictableIdleTimeMillis(_softMinEvictableIdleTimeMillis);
 			//byteBufferPoolConfig.setTestOnBorrow(_testOnBorrow);
 
-			_bufferPool = new ByteBufferPool(
-					byteBufferPoolConfig, _isAllocateDirect, bufferByteSize); 
+			_bufferPool = new ByteBufferPool(byteBufferPoolConfig, _isAllocateDirect, bufferByteSize);
+			logger.info("Using old pool class:" + ByteBufferPool.class.getName());
 		}
 		
 		{
