@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -176,7 +177,15 @@ public class AsyncTcpClient implements ITcpClient {
 					_connectSelector, SelectionKey.OP_CONNECT 
 					);
 			
-			_ioThreadPool = Executors.newCachedThreadPool();
+			_ioThreadPool = Executors.newCachedThreadPool(new ThreadFactory() {
+				
+				@Override
+				public Thread newThread(Runnable runnable) {
+					Thread t = new Thread(runnable);
+					t.setPriority(Thread.NORM_PRIORITY + 2);
+					return t;
+				}
+			});
 			_ioThreadPool.execute(new ConnectThread());
 
 			//connect ------------------------------
@@ -318,9 +327,11 @@ public class AsyncTcpClient implements ITcpClient {
 				
 
 				_readEventThread = new TaskLoopThread<TcpReadEvent>();
+				_readEventThread.setPriority(Thread.NORM_PRIORITY + 1);
 				_readEventThread.start();
 				
 				_writeEventThread = new TcpWriteEventThread(_writeSelector);
+				_writeEventThread.setPriority(Thread.NORM_PRIORITY);
 				_writeEventThread.start();
 
 				_ioThreadPool.execute(new ReadThread());

@@ -36,11 +36,13 @@ public class AsyncTcpServer implements IServer {
     private final static Logger logger = Logger.getLogger(AsyncTcpServer.class);
 
 	static {
-		System.out.println(
-				AsyncTcpServer.class.getName() 
+		final String versionInfo = ""
 				+ " VERSION:" + "1.0.0" 
 				+ " Date:" + "2016-08-18"
-				);
+				;
+ 
+		System.out.println(AsyncTcpServer.class.getName() + versionInfo);
+		logger.info(versionInfo);
 	}
     
     protected final TcpServerConfig _tcpServerConfig;

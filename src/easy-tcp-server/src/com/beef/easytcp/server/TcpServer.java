@@ -15,7 +15,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.commons.pool2.impl.BaseObjectPoolConfig;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.log4j.Logger;
 
@@ -63,6 +62,16 @@ import com.beef.easytcp.util.thread.pool.LoopTaskThreadFixedPool;
  */
 public class TcpServer implements IServer {
 	private final static Logger logger = Logger.getLogger(TcpServer.class);
+	
+	static {
+		final String versionInfo = ""
+				+ " VERSION:" + "1.3.2" 
+				+ " Date:" + "2017-02-10"
+				;
+ 
+		System.out.println(TcpServer.class.getName() + versionInfo);
+		logger.info(versionInfo);
+	}
 	
 	protected final static long SLEEP_PERIOD = 1;
 	
@@ -387,13 +396,25 @@ public class TcpServer implements IServer {
 		NotAcceptedForError
 	};
 	
-	protected class ReplyMsgHandler implements ITcpReplyMessageHandler {
+	public class ReplyMsgHandler implements ITcpReplyMessageHandler {
 		private int _sessionId;
 		private SelectionKey _writeKey;
 		
 		public ReplyMsgHandler(int sessionId, SelectionKey writeKey) {
 			_sessionId = sessionId;
 			_writeKey = writeKey;
+		}
+		
+		public int getSessionId() {
+			return _sessionId;
+		}
+		
+		public SelectionKey getWriteKey() {
+			return _writeKey;
+		}
+		
+		public void sendMessage(TcpWriteEvent writeEvent) {
+			_writeEventThreadPool.execute(writeEvent);
 		}
 		
 		@Override
