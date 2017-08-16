@@ -143,7 +143,7 @@ public class AsyncTcpSession implements IAsyncSession {
         if(event != null) {
             //set event to do only when current one is null which means current one is done
             if(_curWriteEvent.compareAndSet(null, event)) {
-                _writeEventQueue.poll();
+            	event = _writeEventQueue.poll();
 
                 try {
                     event.write(_workChannel, _writeCompletionHandler);

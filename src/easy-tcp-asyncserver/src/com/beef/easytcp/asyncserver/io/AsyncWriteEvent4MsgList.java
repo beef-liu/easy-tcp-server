@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousByteChannel;
 import java.nio.channels.CompletionHandler;
+import java.util.Iterator;
 
 import org.apache.log4j.Logger;
 
@@ -17,22 +18,24 @@ public class AsyncWriteEvent4MsgList implements IAsyncWriteEvent {
     private final static Logger logger = Logger.getLogger(AsyncWriteEvent4MsgList.class);
 
     private final MessageList<? extends IByteBuff> _data;
-    private final ByteBuffer[] _buffers;
-
-    private volatile int _curBufferIndex = 0;
+    private final ByteBuffer[] _bufferArray;
 
     private volatile boolean _closed = false;
 
     public AsyncWriteEvent4MsgList(MessageList<? extends IByteBuff> data) {
         _data = data;
-        _buffers = new ByteBuffer[data.size()];
-
-        int i = 0;
-        for(IByteBuff buff : data) {
-            _buffers[i] = buff.getByteBuffer();
-
-            i++;
-        }
+        
+        _bufferArray = new ByteBuffer[data.size()];
+		Iterator<? extends IByteBuff> iterMsgs = data.iterator();
+		int index = 0;
+		while(iterMsgs.hasNext()) {
+			try {
+				_bufferArray[index++] = iterMsgs.next().getByteBuffer(); 
+			} catch(Throwable e) {
+				logger.error(null, e);
+			}
+		}
+        
     }
 
     @Override
@@ -54,8 +57,8 @@ public class AsyncWriteEvent4MsgList implements IAsyncWriteEvent {
 
     @Override
     public boolean isWrittenDone() {
-        for (ByteBuffer buffer : _buffers) {
-            if(buffer.hasRemaining()) {
+        for(IByteBuff buff : _data) {
+            if(buff.getByteBuffer().hasRemaining()) {
                 return false;
             }
         }
@@ -68,19 +71,23 @@ public class AsyncWriteEvent4MsgList implements IAsyncWriteEvent {
             AsynchronousByteChannel targetChannel,
             CompletionHandler<Integer, IAsyncWriteEvent> writeCompletionHandler
     ) {
-        if(_curBufferIndex >= _buffers.length) {
-            return;
+    	/*
+        for(IByteBuff buff : _data) {
+            if(buff.getByteBuffer().hasRemaining()) {
+                targetChannel.write(buff.getByteBuffer(), this, writeCompletionHandler);
+                return;
+            }
         }
-
-        ByteBuffer buffer = _buffers[_curBufferIndex];
-
-        if(buffer.hasRemaining()) {
-            targetChannel.write(buffer, this, writeCompletionHandler);
-        } else {
-            //move to next buffer
-            _curBufferIndex++;
-            write(targetChannel, writeCompletionHandler);
-        }
+        */
+    	
+    	for(ByteBuffer buffer : _bufferArray) {
+    		if(buffer.hasRemaining()) {
+                targetChannel.write(buffer, this, writeCompletionHandler);
+                return;
+    		}
+    	}
+        
+        writeCompletionHandler.completed(0, this);
     }
 
 }

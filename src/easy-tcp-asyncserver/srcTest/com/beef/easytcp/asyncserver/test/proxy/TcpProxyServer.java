@@ -2,6 +2,7 @@ package com.beef.easytcp.asyncserver.test.proxy;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.SocketTimeoutException;
 import java.nio.channels.AsynchronousChannelGroup;
@@ -140,8 +141,13 @@ public class TcpProxyServer implements Closeable {
         public void didConnect(ITcpReplyMessageHandler iTcpReplyMessageHandler, SocketAddress socketAddress) {
             //init tcp client
             try {
+            	logger.info("didConnect()"
+            			+ " _sessionId:" + _sessionId
+            			+ " client -> " + ((InetSocketAddress)socketAddress).getHostString()
+            			);
+            	
                 _session = _tcpServer.getSession(_sessionId);
-
+                
                 _tcpClient = new AsyncTcpClient(
                 		_backendSetting.getTcpClientConfig(),
                         _byteBuffProvider,
@@ -202,6 +208,9 @@ public class TcpProxyServer implements Closeable {
         public void didDisconnect() {
             //close tcp client
             try {
+            	logger.info("didConnect()"
+            			+ " _sessionId:" + _sessionId
+            			);
                 _tcpClient.disconnect();
             } catch (Throwable e) {
                 logger.error(null, e);
