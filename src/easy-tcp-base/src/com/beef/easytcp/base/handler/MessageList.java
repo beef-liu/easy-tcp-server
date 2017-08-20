@@ -1,20 +1,18 @@
 package com.beef.easytcp.base.handler;
 
+import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.LinkedList;
 
 public class MessageList <T> implements Iterable<T> {
-	protected LinkedList<T> _backList = new LinkedList<T>();
+	protected final ArrayList<T> _backList;
 	
-	/*
-	public T poll() {
-		return _backQueue.poll();
+	public MessageList() {
+		_backList = new ArrayList<T>();
 	}
-	
-	public T peek() {
-		return _backQueue.peek();
+
+	public MessageList(int initCapacity) {
+		_backList = new ArrayList<T>(initCapacity);
 	}
-	*/
 	
 	public MessageList<T> clone() {
 		MessageList<T> newList = new MessageList<T>();
@@ -45,7 +43,7 @@ public class MessageList <T> implements Iterable<T> {
 	}
 	
 	public static <T> MessageList<T> wrap(T t) {
-		MessageList<T> msgList = new MessageList<T>();
+		MessageList<T> msgList = new MessageList<T>(1);
 		msgList.add(t);
 		
 		return msgList;
