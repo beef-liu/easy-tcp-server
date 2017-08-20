@@ -38,7 +38,7 @@ public class AsyncTcpSession implements IAsyncSession {
     private final Queue<IAsyncWriteEvent> _writeEventQueue = new LinkedTransferQueue<IAsyncWriteEvent>();
     private final AtomicReference<IAsyncWriteEvent> _curWriteEvent = new AtomicReference<IAsyncWriteEvent>();
 
-    private boolean _didDispatchEventOfDidConnect = false;
+    //private boolean _didDispatchEventOfDidConnect = false;
     
     private final String _logMsgPrefix;
     
@@ -70,6 +70,15 @@ public class AsyncTcpSession implements IAsyncSession {
         	logMsgPrefix = "";
         }
         _logMsgPrefix = logMsgPrefix;
+
+        try {
+            _eventHandler.didConnect(
+                    _replyMsgHandler,
+                    _workChannel.getRemoteAddress()
+            );
+        } catch (Throwable e) {
+            logger.error(_logMsgPrefix, e);
+        }
     }
 
     @Override
@@ -91,6 +100,7 @@ public class AsyncTcpSession implements IAsyncSession {
 
     @Override
     public void resumeReadLoop() {
+    	/* move to constructor
     	if(!_didDispatchEventOfDidConnect) {
     		_didDispatchEventOfDidConnect = true;
             try {
@@ -102,6 +112,7 @@ public class AsyncTcpSession implements IAsyncSession {
                 logger.error(_logMsgPrefix, e);
             }
     	}
+    	*/
     	
         IByteBuff buff = _byteBuffProvider.createBuffer();
 //        logger.debug(_logMsgPrefix + "resumeReadLoop createBuffer:" + buff);
