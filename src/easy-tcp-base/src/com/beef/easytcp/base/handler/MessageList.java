@@ -2,6 +2,7 @@ package com.beef.easytcp.base.handler;
 
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 
 public class MessageList <T> implements Iterable<T> {
 	protected final ArrayList<T> _backList;
@@ -35,6 +36,10 @@ public class MessageList <T> implements Iterable<T> {
 	
 	public void clear() {
 		_backList.clear();
+	}
+	
+	public List<T> getBackList() {
+		return _backList;
 	}
 
 	@Override

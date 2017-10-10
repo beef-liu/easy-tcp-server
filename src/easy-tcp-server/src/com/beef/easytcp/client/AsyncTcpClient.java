@@ -361,6 +361,11 @@ public class AsyncTcpClient implements ITcpClient {
 	protected ITcpReplyMessageHandler _replyMsgHandler = new ITcpReplyMessageHandler() {
 		
 		@Override
+		public void disconnect() {
+			AsyncTcpClient.this.disconnect();
+		}
+		
+		@Override
 		public void sendMessage(IByteBuff msg) {
 			_writeEventThread.addTask(new TcpWriteEvent(_sessionId, _writeKey, msg));
 		}

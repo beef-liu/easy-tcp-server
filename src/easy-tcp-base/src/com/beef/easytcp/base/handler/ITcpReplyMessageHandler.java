@@ -17,6 +17,11 @@ public interface ITcpReplyMessageHandler {
 	public IByteBuff createBuffer();
 	
 	/**
+	 * disconnect from server side
+	 */
+	public void disconnect();
+	
+	/**
 	 * send back message to remote peer
 	 * @param msg
 	 */

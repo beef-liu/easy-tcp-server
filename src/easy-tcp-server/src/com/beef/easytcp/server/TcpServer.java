@@ -65,8 +65,8 @@ public class TcpServer implements IServer {
 	
 	static {
 		final String versionInfo = ""
-				+ " VERSION:" + "1.3.2" 
-				+ " Date:" + "2017-02-10"
+				+ " VERSION:" + "1.3.3" 
+				+ " Date:" + "2017-09-22"
 				;
  
 		System.out.println(TcpServer.class.getName() + versionInfo);
@@ -415,6 +415,11 @@ public class TcpServer implements IServer {
 		
 		public void sendMessage(TcpWriteEvent writeEvent) {
 			_writeEventThreadPool.execute(writeEvent);
+		}
+		
+		@Override
+		public void disconnect() {
+			clearSelectionKey(_writeKey);
 		}
 		
 		@Override

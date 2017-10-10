@@ -281,11 +281,21 @@ public class AsyncTcpSession implements IAsyncSession {
     };
 
     private ITcpReplyMessageHandler _replyMsgHandler = new ITcpReplyMessageHandler() {
+    	
         @Override
         public IByteBuff createBuffer() {
             IByteBuff buff = _byteBuffProvider.createBuffer();
 //            logger.debug(_logMsgPrefix + " reply createBuffer:" + buff);
             return buff;
+        }
+        
+        @Override
+        public void disconnect() {
+        	try {
+            	AsyncTcpSession.this.close();
+        	} catch (IOException e) {
+        		logger.error("Error occurred in disconnect()", e);
+        	}
         }
 
         @Override
