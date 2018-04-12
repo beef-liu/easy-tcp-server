@@ -1,6 +1,0 @@
-This is simple TCP proxy server based on easy-tcp-asyncserver.jar
-Require JDK 7+.
-
-Features:
-1. Support multiple back ends.
-2. Not support TLS yet.
