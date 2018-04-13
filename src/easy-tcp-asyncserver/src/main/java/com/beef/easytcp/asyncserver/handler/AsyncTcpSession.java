@@ -88,11 +88,14 @@ public class AsyncTcpSession implements IAsyncSession {
                 _workChannel.close();
 
                 _eventHandler.didDisconnect();
-                
-//                logger.debug(_logMsgPrefix + " tcp session closed");
+
+                closeAllEvents();
+
+                logger.debug(_logMsgPrefix + " tcp session closed");
         	}
         } catch (AsynchronousCloseException e) {
         	//channel already closed, do nothing
+            logger.error(_logMsgPrefix, e);
         } catch (Throwable e) {
             logger.error(_logMsgPrefix, e);
         }
@@ -149,6 +152,32 @@ public class AsyncTcpSession implements IAsyncSession {
         resumeWriteLoop();
     }
 
+    private void closeAllEvents() {
+        //close write event
+        if(_curWriteEvent != null) {
+            IAsyncWriteEvent event = _curWriteEvent.get();
+            if(event != null) {
+                try {
+                    event.close();
+                } catch (Throwable e) {
+                    logger.error(_logMsgPrefix, e);
+                }
+            }
+        }
+
+        //close write events
+        while (true) {
+            IAsyncWriteEvent event = _writeEventQueue.poll();
+            if(event == null) break;
+
+            try {
+                event.close();
+            } catch (Throwable e) {
+                logger.error(_logMsgPrefix, e);
+            }
+        }
+    }
+
     private void resumeWriteLoop() {
         IAsyncWriteEvent event = _writeEventQueue.peek();
         if(event != null) {
@@ -159,14 +188,6 @@ public class AsyncTcpSession implements IAsyncSession {
                 try {
                     event.write(_workChannel, _writeCompletionHandler);
                 } catch (Throwable e) {
-                    logger.error(_logMsgPrefix, e);
-
-                    final Class<?> eCls = e.getClass();
-                    if(eCls == WritePendingException.class) {
-                        //do nothing, it is not supposed to occur because of _curWriteEvent.compareAndSet()
-                        logger.error(_logMsgPrefix + " Unexpeced WritePendingException occurred !!!");
-                    }
-
                     //close event
                     try {
                         event.close();
@@ -174,6 +195,19 @@ public class AsyncTcpSession implements IAsyncSession {
                         logger.error(_logMsgPrefix, e2);
                     }
 
+                    //write error log
+                    try {
+                        logger.error(_logMsgPrefix, e);
+                        final Class<?> eCls = e.getClass();
+                        if(eCls == WritePendingException.class) {
+                            //do nothing, it is not supposed to occur because of _curWriteEvent.compareAndSet()
+                            logger.error(_logMsgPrefix + " Unexpeced WritePendingException occurred !!!");
+                        }
+                    } catch (Throwable e2) {
+                        logger.error(_logMsgPrefix, e2);
+                    }
+
+                    //keep going
                     resumeWriteLoop();
                 }
             }
@@ -187,6 +221,15 @@ public class AsyncTcpSession implements IAsyncSession {
 //                logger.debug(_logMsgPrefix + " buff destroyed in finishWriteEvent. buff:" + ((AsyncWriteEvent4ByteBuff)writeEvent).getData());
                 
                 writeEvent.close();
+            } catch (Throwable e) {
+                logger.error(_logMsgPrefix, e);
+            }
+        } else {
+            logger.error(_logMsgPrefix + " Unexpeced sutuation(finishWriteEvent) occurred !!!");
+            try {
+                if(!writeEvent.isClosed()) {
+                    writeEvent.close();
+                }
             } catch (Throwable e) {
                 logger.error(_logMsgPrefix, e);
             }
