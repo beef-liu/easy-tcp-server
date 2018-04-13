@@ -37,8 +37,8 @@ public class AsyncTcpServer implements IServer {
 
 	static {
 		final String versionInfo = ""
-				+ " VERSION:" + "1.0.3" 
-				+ " Date:" + "2017-09-22"
+                + " VERSION:" + "1.0.5"
+				+ " Date:" + "2018-04-13"
 				;
  
 		System.out.println(AsyncTcpServer.class.getName() + versionInfo);
