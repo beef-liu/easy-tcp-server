@@ -256,9 +256,9 @@ public class AsyncTcpClient implements ITcpClient {
 								}
 
 							} catch(CancelledKeyException e) {
-								logError(e);
+								logger.error(null, e);
 							} catch(Exception e) {
-								logError(e);
+								logger.error(null, e);
 							}
 						}
 						
@@ -267,7 +267,7 @@ public class AsyncTcpClient implements ITcpClient {
 					
 					if(_socketChannel.isConnectionPending()) {
 						if((System.currentTimeMillis() - _connectBeginTime) >= _config.getConnectTimeoutMS()) {
-							logInfo("Connecting time out");
+							logger.info("Connecting time out");
 							disconnect();
 							//break;
 						}
@@ -277,18 +277,18 @@ public class AsyncTcpClient implements ITcpClient {
 						break;
 					}
 				} catch(ClosedSelectorException e) {
-					logError(e);
+					logger.error(null, e);
 					disconnect();
 					break;
 				} catch(Throwable e) {
 					disconnect();
-					logError(e);
+					logger.error(null, e);
 					break;
 				} finally {
 					try {
 						Thread.sleep(SLEEP_PERIOD);
 					} catch(InterruptedException e) {
-						logInfo("ConnectThread InterruptedException -----");
+                        logger.info("ConnectThread InterruptedException -----");
 						disconnect();
 						break;
 					}
@@ -352,7 +352,7 @@ public class AsyncTcpClient implements ITcpClient {
 				_connected.compareAndSet(true, false);
 			}
 		} catch(Throwable e) {
-			logError(e);
+			logger.error(null, e);
 			disconnect();
 		} finally {
 			_connectLatch.countDown();
@@ -406,9 +406,9 @@ public class AsyncTcpClient implements ITcpClient {
 									handleRead(key);
 								}
 							} catch(CancelledKeyException e) {
-								logError(e);
+								logger.error(null, e);
 							} catch(Exception e) {
-								logError(e);
+								logger.error(null, e);
 							}
 						}
 						
@@ -417,7 +417,7 @@ public class AsyncTcpClient implements ITcpClient {
 				} catch(ClosedSelectorException e) {
 					break;
 				} catch(Throwable e) {
-					logError(e);
+					logger.error(null, e);
 				} finally {
 //					try {
 //						Thread.sleep(SLEEP_PERIOD);
@@ -462,12 +462,12 @@ public class AsyncTcpClient implements ITcpClient {
 					return;
 				}
 			} catch(IOException e) {
-				logError(e);
+				logger.error(null, e);
 				//clearSelectionKey(key);
 				disconnect();
 				//return false;
 			} catch(Throwable e) {
-				logError(e);
+				logger.error(null, e);
 				//return false;
 			}
 		}
@@ -525,46 +525,46 @@ public class AsyncTcpClient implements ITcpClient {
 		try {
 			_ioThreadPool.shutdown();
 		} catch(Throwable e) {
-			logError(e);
+			logger.error(null, e);
 		}
 		try {
 			_readEventThread.shutdown();
 		} catch(Throwable e) {
-			logError(e);
+			logger.error(null, e);
 		}
 		try {
 			_writeEventThread.shutdown();
 		} catch(Throwable e) {
-			logError(e);
+			logger.error(null, e);
 		}
 		/*
 		try {
 			_bufferPool.close();
 		} catch(Throwable e) {
-			logError(e);
+			logger.error(null, e);
 		}
 		*/
 		try {
 			closeSelector(_connectSelector);
 		} catch(Throwable e) {
-			logError(e);
+			logger.error(null, e);
 		}
 		try {
 			closeSelector(_readSelector);
 		} catch(Throwable e) {
-			logError(e);
+			logger.error(null, e);
 		}
 		try {
 			closeSelector(_writeSelector);
 		} catch(Throwable e) {
-			logError(e);
+			logger.error(null, e);
 		}
 		
 		if(_eventHandler != null) {
 			try {
 				_eventHandler.didDisconnect();
 			} catch(Throwable e) {
-				logError(e);
+				logger.error(null, e);
 			}
 		}
 	}
@@ -609,6 +609,7 @@ public class AsyncTcpClient implements ITcpClient {
 				;
 	}
 
+	/*
 	protected static void logInfo(String msg) {
 		//System.out.println(msg);
 		logger.info(msg);
@@ -618,6 +619,7 @@ public class AsyncTcpClient implements ITcpClient {
 		//e.printStackTrace();
 		logger.error(null, e);
 	}
+	*/
 
 	/*
 	protected void clearSelectionKey(SelectionKey selectionKey) {
@@ -627,7 +629,7 @@ public class AsyncTcpClient implements ITcpClient {
 					try {
 						_eventHandler.didDisconnect();
 					} catch(Throwable e) {
-						logError(e);
+						logger.error(null, e);
 					}
 				}
 			} finally {
@@ -636,14 +638,14 @@ public class AsyncTcpClient implements ITcpClient {
 						SocketChannelUtil.clearSelectionKey(_readKey);
 					}
 				} catch(Throwable e) {
-					logError(e);
+					logger.error(null, e);
 				}
 				try {
 					if(_writeKey != null) {
 						SocketChannelUtil.clearSelectionKey(_writeKey);
 					}
 				} catch(Throwable e) {
-					logError(e);
+					logger.error(null, e);
 				}
 			}
 		}
