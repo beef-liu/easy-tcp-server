@@ -128,8 +128,14 @@ public class TcpWriteEvent implements ITask {
 //						System.out.println("writeMessage() reply starts with '\\r'.");
 //					}
 
-					while(_msg.getByteBuffer().hasRemaining()) {
+					//to prevent from doing loop forever
+					final int iterMax = Math.max(64, 16 * (_msg.getByteBuffer().remaining() / socketChannel.socket().getSendBufferSize()));
+					int iterCnt = 0;
+					while(_msg.getByteBuffer().hasRemaining() && (iterCnt++) < iterMax) {
 						socketChannel.write(_msg.getByteBuffer());
+					}
+					if(iterCnt >= iterMax) {
+						logger.warn("TcpWriteEvent retry too many times. iterCnt:" + iterCnt);
 					}
 				} else if(_msgs != null) {
 					ByteBuffer[] bufferArray = new ByteBuffer[_msgs.size()];
@@ -148,8 +154,14 @@ public class TcpWriteEvent implements ITask {
 //					if(bufferArray[0].array()[0] == '\r') {
 //						System.out.println("writeMessage() replys starts with '\\r'.");
 //					}
-					while(bufferArray[bufferArray.length - 1].hasRemaining()) {
+					//to prevent from doing loop forever
+					final int iterMax = bufferArray.length * Math.max(64, 16 * (bufferArray[bufferArray.length - 1].remaining() / socketChannel.socket().getSendBufferSize()));
+					int iterCnt = 0;
+					while(bufferArray[bufferArray.length - 1].hasRemaining() && (iterCnt++) < iterMax) {
 						socketChannel.write(bufferArray);
+					}
+					if(iterCnt >= iterMax) {
+						logger.warn("TcpWriteEvent retry too many times. iterCnt:" + iterCnt);
 					}
 				} else if(_fileChannel != null) {
 					//_fileChannel.transferTo(_position, _byteLen, socketChannel);
@@ -163,8 +175,14 @@ public class TcpWriteEvent implements ITask {
 						fis.close();
 					}
 				} else if (_byteBuffer != null) {
-					while(_byteBuffer.hasRemaining()) {
+					//to prevent from doing loop forever
+					final int iterMax = Math.max(64, 16 * (_byteBuffer.remaining() / socketChannel.socket().getSendBufferSize()));
+					int iterCnt = 0;
+					while(_byteBuffer.hasRemaining() && (iterCnt++) < iterMax) {
 						socketChannel.write(_byteBuffer);
+					}
+					if(iterCnt >= iterMax) {
+						logger.warn("TcpWriteEvent retry too many times. iterCnt:" + iterCnt);
 					}
 				} else {
 					logger.error("Unknown sending type.");
@@ -186,7 +204,10 @@ public class TcpWriteEvent implements ITask {
 		long offset = position;
 		long remainder = length;
 		long writeLen;
-		while(remainder > 0) {
+		//to prevent from doing loop forever
+		final long iterMax = Math.max(64, (length / bufferSize) * 16);
+		long iterCnt = 0;
+		while(remainder > 0 && (iterCnt++) < iterMax) {
 			writeLen = Math.min(remainder, bufferSize);
 			
 //			if( != writeLen) {
@@ -197,6 +218,9 @@ public class TcpWriteEvent implements ITask {
 			
 			remainder -= writeLen;
 			offset += writeLen;
+		}
+		if(iterCnt >= iterMax) {
+			logger.warn("TcpWriteEvent retry too many times. iterCnt:" + iterCnt);
 		}
 	}
 
