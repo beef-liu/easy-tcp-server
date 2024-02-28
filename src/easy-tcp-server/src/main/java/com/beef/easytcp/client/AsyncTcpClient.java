@@ -137,7 +137,7 @@ public class AsyncTcpClient implements ITcpClient {
 	@Override
 	public void connect() throws IOException {
 		if(isConnected()) {
-			//logInfo("connect() isConnected() true");
+			logger.debug("connect() broken; isConnected() true");
 			return;
 		}
 
@@ -145,12 +145,14 @@ public class AsyncTcpClient implements ITcpClient {
 			synchronized (this) {
 				if(_connectLatch != null && _connectLatch.getCount() == 1) {
 					//in connecting
+					logger.error("connect() broken; _connectLatch");
 					return;
 				}
 				_connectLatch = new CountDownLatch(1);
 				
 				if(_socketChannel != null && _socketChannel.isConnectionPending()) {
 					//in connecting
+					logger.error("connect() broken; _socketChannel");
 					return;
 				}
 			}
@@ -187,13 +189,17 @@ public class AsyncTcpClient implements ITcpClient {
 					return t;
 				}
 			});
-			_ioThreadPool.execute(new ConnectThread());
+			//asynchronously check Connecting Event is fragile, change to synchronous checkConnectSelector()
+			//_ioThreadPool.execute(new ConnectThread());
 
 			//connect ------------------------------
 			
 			_connectBeginTime = System.currentTimeMillis();
 			boolean connectReady = _socketChannel.connect(
 					new InetSocketAddress(_config.getHost(), _config.getPort()));
+
+			checkConnectSelector();
+
 			if(connectReady) {
 				finishConnect();
 			}
@@ -239,59 +245,62 @@ public class AsyncTcpClient implements ITcpClient {
 	protected class ConnectThread implements Runnable {
 		@Override
 		public void run() {
-			while(true) {
-				try {
-					boolean finishConnect = false;
-					if(_connectSelector.select(_config.getConnectTimeoutMS()) != 0) {
-						Set<SelectionKey> keySet = _connectSelector.selectedKeys();
-						for(SelectionKey key : keySet) {
-							try {
-								if(!key.isValid()) {
-									continue;
-								}
-								
-								if(key.isConnectable()) {
-									finishConnect();
-									finishConnect = true;
-								}
+		}
+	}
 
-							} catch(CancelledKeyException e) {
-								logger.error(null, e);
-							} catch(Exception e) {
-								logger.error(null, e);
+	protected void checkConnectSelector() {
+		while(true) {
+			try {
+				boolean finishConnect = false;
+				if(_connectSelector.select(_config.getConnectTimeoutMS()) != 0) {
+					Set<SelectionKey> keySet = _connectSelector.selectedKeys();
+					for(SelectionKey key : keySet) {
+						try {
+							if(!key.isValid()) {
+								continue;
 							}
+
+							if(key.isConnectable()) {
+								finishConnect();
+								finishConnect = true;
+							}
+
+						} catch(CancelledKeyException e) {
+							logger.error(null, e);
+						} catch(Exception e) {
+							logger.error(null, e);
 						}
-						
-						keySet.clear();
 					}
-					
-					if(_socketChannel.isConnectionPending()) {
-						if((System.currentTimeMillis() - _connectBeginTime) >= _config.getConnectTimeoutMS()) {
-							logger.info("Connecting time out");
-							disconnect();
-							//break;
-						}
-					}
-					
-					if(finishConnect) {
-						break;
-					}
-				} catch(ClosedSelectorException e) {
-					logger.error(null, e);
-					disconnect();
-					break;
-				} catch(Throwable e) {
-					disconnect();
-					logger.error(null, e);
-					break;
-				} finally {
-					try {
-						Thread.sleep(SLEEP_PERIOD);
-					} catch(InterruptedException e) {
-                        logger.info("ConnectThread InterruptedException -----");
+
+					keySet.clear();
+				}
+
+				if(_socketChannel.isConnectionPending()) {
+					if((System.currentTimeMillis() - _connectBeginTime) >= _config.getConnectTimeoutMS()) {
+						logger.info("Connecting time out");
 						disconnect();
-						break;
+						//break;
 					}
+				}
+
+				if(finishConnect) {
+					break;
+				}
+			} catch(ClosedSelectorException e) {
+				logger.error("catch_1", e);
+				disconnect();
+				break;
+			} catch(Throwable e) {
+				disconnect();
+				logger.error("catch_2", e);
+				break;
+			} finally {
+				try {
+					Thread.sleep(SLEEP_PERIOD);
+				} catch(InterruptedException e) {
+					logger.info("ConnectThread InterruptedException -----");
+					disconnect();
+					break;
 				}
 			}
 		}
@@ -559,7 +568,13 @@ public class AsyncTcpClient implements ITcpClient {
 		} catch(Throwable e) {
 			logger.error(null, e);
 		}
-		
+
+		try {
+			_connectLatch.countDown();
+		} catch(Throwable e) {
+			logger.error(null, e);
+		}
+
 		if(_eventHandler != null) {
 			try {
 				_eventHandler.didDisconnect();
